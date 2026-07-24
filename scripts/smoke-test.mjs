@@ -1,0 +1,51 @@
+#!/usr/bin/env node
+/**
+ * Lightweight smoke checks (no browser).
+ * Verifies critical modules load and schema file exists.
+ */
+import { readFileSync, existsSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const required = [
+  "SPEC.md",
+  "supabase/migrations/001_schema.sql",
+  "src/proxy.ts",
+  "src/app/sets/[id]/stand/page.tsx",
+  "src/actions/setlists.ts",
+  "src/actions/songs.ts",
+  "src/actions/files.ts",
+];
+
+let failed = 0;
+for (const rel of required) {
+  const path = resolve(root, rel);
+  if (!existsSync(path)) {
+    console.error("MISSING", rel);
+    failed++;
+  } else {
+    console.log("ok", rel);
+  }
+}
+
+const schema = readFileSync(resolve(root, "supabase/migrations/001_schema.sql"), "utf8");
+for (const needle of [
+  "create table if not exists public.songs",
+  "create table if not exists public.setlist_items",
+  "song_files_select_targeted",
+  "song-files",
+]) {
+  if (!schema.includes(needle)) {
+    console.error("SCHEMA missing", needle);
+    failed++;
+  } else {
+    console.log("schema ok", needle);
+  }
+}
+
+if (failed) {
+  console.error(`\n${failed} smoke check(s) failed`);
+  process.exit(1);
+}
+console.log("\nSmoke checks passed");
