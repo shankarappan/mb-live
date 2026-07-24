@@ -91,3 +91,7 @@ Offline PWA cache, Supabase Realtime set sync, ChordPro transposition, advanced 
 ## License
 
 Private band tool — keep the repo access and Supabase project locked down; charts and stems must never be public.
+
+## GitHub remote
+
+If `origin` is missing, see [PUBLISH.md](./PUBLISH.md) — create the empty `shankarappan/mb-live` repo and grant the Cursor GitHub App access, then push `main`.
