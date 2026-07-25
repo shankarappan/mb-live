@@ -34,10 +34,18 @@ export async function signInWithMagicLink(
   });
 
   if (error) {
+    const msg = error.message.toLowerCase();
+    if (msg.includes("rate limit") || error.code === "over_email_send_rate_limit") {
+      return {
+        error:
+          "Email rate limit exceeded. Wait a few minutes, or run `npm run seed:admin` and use the printed one-time magic link.",
+      };
+    }
     return {
       error:
         error.message.includes("Signups not allowed") ||
-        error.message.toLowerCase().includes("user not found")
+        msg.includes("user not found") ||
+        error.code === "otp_disabled"
           ? "This email is not invited. Ask an admin to add you."
           : error.message,
     };
