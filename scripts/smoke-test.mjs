@@ -10,12 +10,18 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const required = [
   "SPEC.md",
+  "SETUP_CHECKLIST.md",
+  "README.md",
+  ".env.example",
   "supabase/migrations/001_schema.sql",
   "src/proxy.ts",
+  "src/app/api/health/route.ts",
   "src/app/sets/[id]/stand/page.tsx",
   "src/actions/setlists.ts",
   "src/actions/songs.ts",
   "src/actions/files.ts",
+  "scripts/seed-admin.mjs",
+  "scripts/check-env.mjs",
 ];
 
 let failed = 0;

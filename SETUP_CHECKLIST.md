@@ -58,7 +58,7 @@ CLI-only (optional to put in `.env.local`; usually passed on the command line):
 | `SEED_ADMIN_EMAIL` | `scripts/seed-admin.mjs` | Required for seeding |
 | `SEED_ADMIN_NAME` | `scripts/seed-admin.mjs` | Optional; defaults to `Admin` |
 
-**Important:** `node scripts/seed-admin.mjs` does **not** auto-load `.env.local`. Export vars first or prefix the command (see commands below).
+**Note:** `npm run seed:admin` and `npm run check:env` auto-load `.env.local`. You still pass `SEED_ADMIN_EMAIL` on the command line (or uncomment it in `.env.local`).
 
 ---
 
@@ -118,7 +118,6 @@ Later members: signed-in Admin → **Admin → Users → Invite** (`inviteUserBy
 
 | Risk | Detail |
 |------|--------|
-| Seed doesn’t load `.env.local` | Export/`source` env vars or pass them inline |
 | Seed ≠ automatic login | User exists; you must still request a magic link at `/login` |
 | Wrong Supabase project | Reusing Lets Split DB will not match this schema/RLS |
 | Partial migration | If SQL errors mid-run, re-run after fixing; confirm bucket + policies |
@@ -145,12 +144,15 @@ cp .env.example .env.local
 # In Supabase SQL Editor: run supabase/migrations/001_schema.sql
 # In Supabase Auth: disable public sign-up; set Site URL + redirect URLs
 
-set -a && source .env.local && set +a
+npm run check:env
+npm run check:env -- --live
+
 SEED_ADMIN_EMAIL="you@example.com" SEED_ADMIN_NAME="Your Name" npm run seed:admin
 
-npm run smoke
+npm run setup:verify
 npm run dev
 # Open http://localhost:3000/login and request a magic link for SEED_ADMIN_EMAIL
+# Optional: http://localhost:3000/api/health
 ```
 
 ### Optional later (not Phase 1 required)

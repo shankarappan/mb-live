@@ -7,8 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:env": "node scripts/check-env.mjs",
     "seed:admin": "node scripts/seed-admin.mjs",
-    "smoke": "node scripts/smoke-test.mjs"
+    "smoke": "node scripts/smoke-test.mjs",
+    "setup:verify": "node scripts/check-env.mjs && node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
