@@ -27,7 +27,7 @@ export default async function SetsPage() {
       <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-3xl">Set lists</h1>
+            <h1 className="font-display text-3xl tracking-wide">Set lists</h1>
             <p className="text-sm text-muted-foreground">
               Rehearsals and gigs in one place.
             </p>
@@ -48,7 +48,7 @@ function SetGroup({ title, sets }: { title: string; sets: Setlist[] }) {
   return (
     <section className="space-y-3">
       <h2 className="font-display text-xl">{title}</h2>
-      <ul className="divide-y divide-border/60 rounded-xl border border-border/70 bg-card/30">
+      <ul className="panel divide-y divide-border/70 overflow-hidden p-0">
         {sets.map((set) => (
           <li key={set.id}>
             <Link

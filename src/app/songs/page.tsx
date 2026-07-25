@@ -70,7 +70,7 @@ export default async function SongsPage({
       <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-3xl">Songs</h1>
+            <h1 className="font-display text-3xl tracking-wide">Songs</h1>
             <p className="text-sm text-muted-foreground">
               Canonical library for the band.
             </p>
@@ -80,7 +80,7 @@ export default async function SongsPage({
           )}
         </div>
 
-        <form className="grid gap-2 rounded-xl border border-border/70 bg-card/30 p-3 sm:grid-cols-5">
+        <form className="panel grid gap-2 p-3 sm:grid-cols-5">
           <Input
             name="q"
             placeholder="Search title, artist…"
@@ -108,7 +108,7 @@ export default async function SongsPage({
           </div>
         </form>
 
-        <ul className="divide-y divide-border/60 rounded-xl border border-border/70 bg-card/30">
+        <ul className="panel divide-y divide-border/70 overflow-hidden p-0">
           {songs.map((song) => (
             <li key={song.id}>
               <Link

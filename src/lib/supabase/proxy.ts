@@ -6,6 +6,8 @@ const PROTECTED_PREFIXES = [
   "/sets",
   "/settings",
   "/admin",
+  "/files",
+  "/band",
 ];
 
 function isProtected(pathname: string) {
