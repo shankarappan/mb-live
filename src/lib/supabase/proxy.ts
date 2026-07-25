@@ -34,6 +34,11 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.next({ request });
   }
 
+  // Public liveness / readiness probes — no session refresh cost.
+  if (pathname === "/api/health" || pathname === "/api/ready") {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {

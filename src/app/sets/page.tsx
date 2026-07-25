@@ -4,16 +4,19 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { LinkButton } from "@/components/ui/link-button";
 import { isLeaderOrAdmin, requireProfile } from "@/lib/auth";
+import { LIST_PAGE_SIZE } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { Setlist } from "@/lib/types/database";
 
 export default async function SetsPage() {
   const profile = await requireProfile();
   const supabase = await createClient();
+  // Bound list growth; a working band set library stays well under this.
   const { data } = await supabase
     .from("setlists")
     .select("*")
-    .order("event_date", { ascending: false, nullsFirst: false });
+    .order("event_date", { ascending: false, nullsFirst: false })
+    .limit(LIST_PAGE_SIZE);
 
   const sets = (data as Setlist[] | null) ?? [];
   const upcoming = sets.filter((s) => s.status !== "archived");

@@ -24,6 +24,12 @@ export const metadata: Metadata = {
   },
 };
 
+/**
+ * Prefer Sydney for App Router segments. Project-level pin is also set in
+ * vercel.json `"regions": ["syd1"]` (authoritative for Node.js serverless).
+ */
+export const preferredRegion = "syd1";
+
 export default function RootLayout({
   children,
 }: Readonly<{

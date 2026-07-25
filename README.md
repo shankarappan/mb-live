@@ -20,14 +20,11 @@ Inspired by Planning Center Services + Music Stand — simplified for a single b
 2. Wait until the project is healthy.
 3. Open **Project Settings → API** and keep this tab handy for env values.
 
-### 2. Run the SQL migration
+### 2. Run the SQL migrations
 
 1. In Supabase, open **SQL Editor**.
-2. Paste the entire contents of [`supabase/migrations/001_schema.sql`](./supabase/migrations/001_schema.sql).
-3. Run it once.
-
-This creates tables, RLS policies, the auth→profile trigger, and the private Storage bucket **`song-files`** (200MB limit).  
-There is only **one** migration file — nothing else to run in order.
+2. Run [`supabase/migrations/001_schema.sql`](./supabase/migrations/001_schema.sql) once (tables, RLS, private bucket).
+3. Run [`supabase/migrations/002_perf_storage_indexes.sql`](./supabase/migrations/002_perf_storage_indexes.sql) (indexes + tighter Storage policies for direct uploads).
 
 Confirm afterwards:
 
@@ -98,7 +95,12 @@ npm run dev
 2. Enter the seeded admin email → check inbox for the magic link  
 3. You should land on Home  
 
-Optional health endpoint (no secrets returned): http://localhost:3000/api/health  
+Health endpoints (no secrets returned):
+
+| Path | Purpose |
+|------|---------|
+| `/api/health` | Public **liveness** — env presence only (no DB call) |
+| `/api/ready` | **Readiness** — timed Supabase probe; requires `Authorization: Bearer $READY_CHECK_TOKEN` |
 
 ### 7. Deploy to Vercel
 
@@ -112,8 +114,19 @@ Set all four for **Production** (and **Preview** if you use preview deployments)
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Same as local | anon / publishable |
 | `SUPABASE_SERVICE_ROLE_KEY` | Same as local | **secret** — server only; never expose in client |
 | `NEXT_PUBLIC_APP_URL` | `https://<your-vercel-domain>` | **No trailing slash.** Must match Supabase Site URL |
+| `READY_CHECK_TOKEN` (optional) | Long random secret | Protects `/api/ready` deep checks |
 
 Do **not** set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_NAME` on Vercel.
+
+#### Server region (Sydney)
+
+`vercel.json` sets `"regions": ["syd1"]` so Node.js server functions run in Sydney (near Supabase `ap-southeast-2`). After deploy, confirm with:
+
+```bash
+curl -sI https://mb-live.vercel.app/api/health | tr -d '\r' | grep -i x-vercel
+```
+
+`x-vercel-id` should include `syd1` for the function region (not `iad1`). Edge CDN may still show a nearby POP; the important part is the **function** region matching Sydney.
 
 #### Supabase Auth settings that must match production
 
@@ -139,9 +152,11 @@ Also keep:
 5. Copy the production URL (e.g. `https://mb-live.vercel.app` or your custom domain).
 6. If `NEXT_PUBLIC_APP_URL` was a placeholder, set it to that exact origin and **redeploy** (NEXT_PUBLIC_* is baked in at build time).
 7. In Supabase Auth URL config: set Site URL + add production `/auth/callback` (keep localhost redirect too).
-8. Open `https://<your-vercel-domain>/api/health` → `"ok": true`.
-9. Open `/login` → magic link for the seeded admin → land on Home.
-10. Optional Preview: add the same env vars for Preview, plus each preview URL’s `/auth/callback` in Supabase Redirect URLs (or use a wildcard if your Supabase plan/UI supports it).
+8. Open `https://<your-vercel-domain>/api/health` → `"ok": true` (liveness; no DB).
+9. Optional: `curl -H "Authorization: Bearer $READY_CHECK_TOKEN" https://<domain>/api/ready` → `"database":"ok"`.
+10. Open `/login` → magic link for the seeded admin → land on Home.
+11. Confirm function region is Sydney (`x-vercel-id` contains `syd1`).
+12. Optional Preview: add the same env vars for Preview, plus each preview URL’s `/auth/callback` in Supabase Redirect URLs (or use a wildcard if your Supabase plan/UI supports it).
 
 #### Auth correctness notes
 
@@ -166,7 +181,12 @@ Also keep:
 | `npm run check:env` | Validate `.env.local` keys (add `-- --live` to ping Supabase) |
 | `npm run smoke` | Repo file + schema string smoke checks |
 | `npm run setup:verify` | `check:env` + `smoke` |
+| `npm run typecheck` | TypeScript `--noEmit` |
 | `npm run seed:admin` | Create/promote first admin (loads `.env.local`) |
+| `npm run perf:concurrency` | 20-user authenticated read mix against `BASE_URL` |
+| `npm run verify:uploads` | Direct-upload size checks (1/5/50 MB + over-max reject; deletes temp media) |
+
+See [`docs/PERF_VERIFICATION.md`](./docs/PERF_VERIFICATION.md) for concurrency / region / upload verification details.
 | `npm run dev` | Local development |
 | `npm run build` | Production build |
 | `npm run lint` | ESLint |
