@@ -102,16 +102,52 @@ Optional health endpoint (no secrets returned): http://localhost:3000/api/health
 
 ### 7. Deploy to Vercel
 
-1. Import https://github.com/shankarappan/mb-live into Vercel.
-2. Set env vars for Production (and Preview if you want):
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - `NEXT_PUBLIC_APP_URL` = `https://<your-vercel-domain>` (no trailing slash)
-3. Deploy.
-4. In Supabase Auth URL config, set **Site URL** to the production URL and add  
-   `https://<your-vercel-domain>/auth/callback` to **Redirect URLs**.
-5. Hit `https://<your-vercel-domain>/api/health` and confirm `"ok": true`.
+#### Production env vars (Vercel → Project → Settings → Environment Variables)
+
+Set all four for **Production** (and **Preview** if you use preview deployments):
+
+| Variable | Production value | Notes |
+|----------|------------------|-------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Same as local | Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Same as local | anon / publishable |
+| `SUPABASE_SERVICE_ROLE_KEY` | Same as local | **secret** — server only; never expose in client |
+| `NEXT_PUBLIC_APP_URL` | `https://<your-vercel-domain>` | **No trailing slash.** Must match Supabase Site URL |
+
+Do **not** set `SEED_ADMIN_EMAIL` / `SEED_ADMIN_NAME` on Vercel.
+
+#### Supabase Auth settings that must match production
+
+**Authentication → URL Configuration:**
+
+| Setting | Value |
+|---------|--------|
+| **Site URL** | `https://<your-vercel-domain>` (primary production origin) |
+| **Redirect URLs** | Include **both**: `https://<your-vercel-domain>/auth/callback` **and** `http://localhost:3000/auth/callback` (keep local for development) |
+
+Also keep:
+- Email provider **enabled**
+- Public sign-up **disabled**
+
+`NEXT_PUBLIC_APP_URL` on Vercel, Supabase **Site URL**, and the production redirect entry must all use the **same https origin**.
+
+#### Deploy steps (exact order)
+
+1. Push `main` to https://github.com/shankarappan/mb-live (already the deploy source).
+2. In Vercel: **Add New Project** → Import `shankarappan/mb-live` → Framework: Next.js (auto).
+3. Before first deploy, add the four env vars above for Production.
+4. Deploy.
+5. Copy the production URL (e.g. `https://mb-live.vercel.app` or your custom domain).
+6. If `NEXT_PUBLIC_APP_URL` was a placeholder, set it to that exact origin and **redeploy** (NEXT_PUBLIC_* is baked in at build time).
+7. In Supabase Auth URL config: set Site URL + add production `/auth/callback` (keep localhost redirect too).
+8. Open `https://<your-vercel-domain>/api/health` → `"ok": true`.
+9. Open `/login` → magic link for the seeded admin → land on Home.
+10. Optional Preview: add the same env vars for Preview, plus each preview URL’s `/auth/callback` in Supabase Redirect URLs (or use a wildcard if your Supabase plan/UI supports it).
+
+#### Auth correctness notes
+
+- Magic links and invites use `NEXT_PUBLIC_APP_URL` (with a safe `VERCEL_URL` fallback). Prefer setting `NEXT_PUBLIC_APP_URL` explicitly.
+- After changing any `NEXT_PUBLIC_*` var on Vercel, you must **redeploy**.
+- Custom domain: use the custom origin in Site URL, Redirect URLs, and `NEXT_PUBLIC_APP_URL`, then redeploy.
 
 ---
 

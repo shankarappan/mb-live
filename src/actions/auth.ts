@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { getAppUrl } from "@/lib/app-url";
 import { createClient } from "@/lib/supabase/server";
 
 export type AuthState = {
@@ -22,7 +23,7 @@ export async function signInWithMagicLink(
   }
 
   const supabase = await createClient();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = getAppUrl();
   const safeRedirect = redirectTo.startsWith("/") ? redirectTo : "/";
 
   const { error } = await supabase.auth.signInWithOtp({

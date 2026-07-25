@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireProfile, requireRole } from "@/lib/auth";
+import { getAppUrl } from "@/lib/app-url";
 import { INSTRUMENTS } from "@/lib/constants";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -61,7 +62,7 @@ export async function inviteUser(
 
   try {
     const admin = createAdminClient();
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const appUrl = getAppUrl();
 
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
       redirectTo: `${appUrl}/auth/callback?redirect=/settings/profile`,
