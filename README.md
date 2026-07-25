@@ -95,3 +95,7 @@ Private band tool — keep the repo access and Supabase project locked down; cha
 ## GitHub remote
 
 If `origin` is missing, see [PUBLISH.md](./PUBLISH.md) — create the empty `shankarappan/mb-live` repo and grant the Cursor GitHub App access, then push `main`.
+
+## Setup checklist
+
+Step-by-step Phase 1 local + Supabase setup: [SETUP_CHECKLIST.md](./SETUP_CHECKLIST.md).
