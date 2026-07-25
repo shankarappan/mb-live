@@ -32,55 +32,97 @@ if (url.includes("your-project") || key === "your-service-role-key") {
   process.exit(1);
 }
 
-const admin = createClient(url, key, {
+/** Auth Admin calls with sb_secret_ keys must use apikey header only (no Bearer). */
+async function authAdmin(path, { method = "GET", body } = {}) {
+  const res = await fetch(`${url}/auth/v1${path}`, {
+    method,
+    headers: {
+      apikey: key,
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let data;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  if (!res.ok) {
+    const msg = data?.msg || data?.message || text || res.statusText;
+    throw new Error(`Auth Admin ${method} ${path} failed (${res.status}): ${msg}`);
+  }
+  return data;
+}
+
+const db = createClient(url, key, {
   auth: { autoRefreshToken: false, persistSession: false },
+  global: key.startsWith("sb_secret_")
+    ? {
+        fetch: (input, init = {}) => {
+          const headers = new Headers(init.headers);
+          headers.set("apikey", key);
+          headers.delete("Authorization");
+          return fetch(input, { ...init, headers });
+        },
+      }
+    : undefined,
 });
 
-const { data: listed, error: listError } = await admin.auth.admin.listUsers({
-  page: 1,
-  perPage: 200,
-});
-if (listError) {
-  console.error(listError.message);
+let listed;
+try {
+  listed = await authAdmin("/admin/users?page=1&per_page=200");
+} catch (e) {
+  console.error(e.message);
   process.exit(1);
 }
 
-const existing = listed.users.find((u) => u.email?.toLowerCase() === email);
+const users = listed.users || [];
+const existing = users.find((u) => u.email?.toLowerCase() === email);
 
 let userId = existing?.id;
 if (!userId) {
-  const { data, error } = await admin.auth.admin.createUser({
-    email,
-    email_confirm: true,
-    user_metadata: {
-      display_name: name,
-      role: "admin",
-      instruments: ["vocals"],
-    },
-  });
-  if (error) {
-    console.error(error.message);
+  try {
+    const created = await authAdmin("/admin/users", {
+      method: "POST",
+      body: {
+        email,
+        email_confirm: true,
+        user_metadata: {
+          display_name: name,
+          role: "admin",
+          instruments: ["vocals"],
+        },
+      },
+    });
+    userId = created.id;
+    console.log("Created auth user", userId);
+  } catch (e) {
+    console.error(e.message);
     process.exit(1);
   }
-  userId = data.user.id;
-  console.log("Created auth user", userId);
 } else {
   console.log("Auth user already exists", userId);
-  const { error: metaError } = await admin.auth.admin.updateUserById(userId, {
-    email_confirm: true,
-    user_metadata: {
-      ...(existing.user_metadata || {}),
-      display_name: name,
-      role: "admin",
-    },
-  });
-  if (metaError) {
-    console.error(metaError.message);
+  try {
+    await authAdmin(`/admin/users/${userId}`, {
+      method: "PUT",
+      body: {
+        email_confirm: true,
+        user_metadata: {
+          ...(existing.user_metadata || {}),
+          display_name: name,
+          role: "admin",
+        },
+      },
+    });
+  } catch (e) {
+    console.error(e.message);
     process.exit(1);
   }
 }
 
-const { data: existingProfile } = await admin
+const { data: existingProfile } = await db
   .from("profiles")
   .select("instruments")
   .eq("id", userId)
@@ -91,7 +133,7 @@ const instruments =
     ? existingProfile.instruments
     : ["vocals"];
 
-const { error: profileError } = await admin.from("profiles").upsert({
+const { error: profileError } = await db.from("profiles").upsert({
   id: userId,
   email,
   display_name: name,
