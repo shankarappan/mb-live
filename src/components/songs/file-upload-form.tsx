@@ -18,14 +18,17 @@ import {
   MAX_FILE_LABEL,
 } from "@/lib/constants";
 import { uploadToSignedUrlWithProgress } from "@/lib/direct-upload";
+import type { Arrangement } from "@/lib/types/database";
 import { isAllowedUploadFilename, isAllowedUploadMime } from "@/lib/uploads";
 
 const ACCEPT = ALLOWED_UPLOAD_EXTENSIONS.map((ext) => `.${ext}`).join(",");
 
 export function FileUploadForm({
   songId,
+  arrangements = [],
 }: {
   songId: string;
+  arrangements?: Arrangement[];
   canTargetAll?: boolean;
 }) {
   const router = useRouter();
@@ -70,6 +73,8 @@ export function FileUploadForm({
       .getAll("target_instruments")
       .map(String);
     const fileType = String(formData.get("file_type") ?? "other");
+    const arrangementId =
+      String(formData.get("arrangement_id") ?? "").trim() || null;
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -82,6 +87,7 @@ export function FileUploadForm({
 
         const prepared = await prepareSongFileUpload({
           songId,
+          arrangementId,
           filename: file.name,
           mimeType: file.type || "application/octet-stream",
           sizeBytes: file.size,
@@ -138,6 +144,7 @@ export function FileUploadForm({
         setPhase("saving");
         const finalized = await finalizeSongFileUpload({
           songId,
+          arrangementId,
           storagePath: prepared.path,
           filename: file.name,
           mimeType: file.type || "application/octet-stream",
@@ -227,6 +234,25 @@ export function FileUploadForm({
             ))}
           </select>
         </div>
+        {arrangements.length > 0 ? (
+          <div className="space-y-2">
+            <Label htmlFor="arrangement_id">Arrangement (optional)</Label>
+            <select
+              id="arrangement_id"
+              name="arrangement_id"
+              defaultValue=""
+              disabled={busy}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="">Song-level (shared)</option>
+              {arrangements.map((arr) => (
+                <option key={arr.id} value={arr.id}>
+                  {arr.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
       </div>
 
       <div className="space-y-2">

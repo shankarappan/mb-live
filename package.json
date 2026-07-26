@@ -12,6 +12,8 @@
     "smoke": "node scripts/smoke-test.mjs",
     "setup:verify": "node scripts/check-env.mjs && node scripts/smoke-test.mjs",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/lib/chart/chart.test.ts",
+    "db:migrate:003": "node scripts/apply-migration-003.mjs",
     "perf:concurrency": "node scripts/perf-concurrency.mjs",
     "verify:uploads": "node scripts/verify-direct-upload.mjs"
   },
@@ -45,6 +47,7 @@
     "eslint-config-next": "16.2.11",
     "playwright": "^1.62.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.1",
     "typescript": "^5"
   }
 }

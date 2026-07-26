@@ -11,6 +11,7 @@ import { isLeaderOrAdmin, requireProfile } from "@/lib/auth";
 import { LIST_PAGE_SIZE } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  Arrangement,
   Setlist,
   SetlistItemWithSong,
   Song,
@@ -34,25 +35,76 @@ export default async function SetDetailPage({
 
   if (!setlist) notFound();
 
-  const [{ data: items }, { data: songs }] = await Promise.all([
-    supabase
+  const withArr = await supabase
+    .from("setlist_items")
+    .select("*, song:songs(*), arrangement:arrangements(*)")
+    .eq("setlist_id", id)
+    .order("position", { ascending: true })
+    .limit(300);
+
+  let ordered: SetlistItemWithSong[] = [];
+  if (withArr.error) {
+    const fallback = await supabase
       .from("setlist_items")
       .select("*, song:songs(*)")
       .eq("setlist_id", id)
       .order("position", { ascending: true })
-      .limit(300),
-    editable
-      ? supabase
-          .from("songs")
-          .select("id, title, artist, default_key, tempo_bpm, status")
-          .eq("status", "active")
-          .order("title")
-          .limit(LIST_PAGE_SIZE)
-      : Promise.resolve({ data: [] as Song[] }),
-  ]);
+      .limit(300);
+    ordered = (fallback.data as SetlistItemWithSong[] | null) ?? [];
+  } else {
+    ordered = (withArr.data as SetlistItemWithSong[] | null) ?? [];
+  }
+
+  let songList: Song[] = [];
+  if (editable) {
+    const songsQuery = await supabase
+      .from("songs")
+      .select(
+        "id, title, artist, default_key, tempo_bpm, status, default_arrangement_id",
+      )
+      .eq("status", "active")
+      .order("title")
+      .limit(LIST_PAGE_SIZE);
+    if (songsQuery.error) {
+      const legacy = await supabase
+        .from("songs")
+        .select("id, title, artist, default_key, tempo_bpm, status")
+        .eq("status", "active")
+        .order("title")
+        .limit(LIST_PAGE_SIZE);
+      songList = (legacy.data as Song[] | null) ?? [];
+    } else {
+      songList = (songsQuery.data as Song[] | null) ?? [];
+    }
+  }
+
+  const songIdsForArr = [
+    ...new Set([
+      ...ordered
+        .map((i) => i.song_id)
+        .filter((sid): sid is string => Boolean(sid)),
+      ...songList.map((s) => s.id),
+    ]),
+  ];
+
+  const arrangementsBySong: Record<string, Arrangement[]> = {};
+  if (songIdsForArr.length > 0) {
+    const { data: arrs, error } = await supabase
+      .from("arrangements")
+      .select("*")
+      .in("song_id", songIdsForArr)
+      .eq("status", "active")
+      .order("position", { ascending: true });
+    if (!error) {
+      for (const arr of (arrs as Arrangement[] | null) ?? []) {
+        const list = arrangementsBySong[arr.song_id] ?? [];
+        list.push(arr);
+        arrangementsBySong[arr.song_id] = list;
+      }
+    }
+  }
 
   const s = setlist as Setlist;
-  const ordered = (items as SetlistItemWithSong[] | null) ?? [];
 
   return (
     <AppShell profile={profile}>
@@ -100,13 +152,15 @@ export default async function SetDetailPage({
             setlistId={s.id}
             items={ordered}
             editable={editable}
+            arrangementsBySong={arrangementsBySong}
           />
         </section>
 
         {editable && (
           <AddSongPanel
             setlistId={s.id}
-            songs={(songs as Song[] | null) ?? []}
+            songs={songList}
+            arrangementsBySong={arrangementsBySong}
           />
         )}
       </div>

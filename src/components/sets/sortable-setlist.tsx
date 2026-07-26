@@ -28,16 +28,18 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { SetlistItemWithSong } from "@/lib/types/database";
+import type { Arrangement, SetlistItemWithSong } from "@/lib/types/database";
 
 function SortableRow({
   item,
   setlistId,
   editable,
+  arrangements = [],
 }: {
   item: SetlistItemWithSong;
   setlistId: string;
   editable: boolean;
+  arrangements?: Arrangement[];
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item.id, disabled: !editable });
@@ -79,12 +81,17 @@ function SortableRow({
                 {item.item_type.replace("_", " ")}
               </Badge>
             )}
-            {item.song?.default_key && (
+            {(item.arrangement?.default_key || item.song?.default_key) && (
               <Badge variant="secondary">
-                {item.override_key ?? item.song.default_key}
+                {item.override_key ??
+                  item.arrangement?.default_key ??
+                  item.song?.default_key}
                 {item.override_key ? " *" : ""}
               </Badge>
             )}
+            {item.arrangement?.name ? (
+              <Badge variant="outline">{item.arrangement.name}</Badge>
+            ) : null}
           </div>
           {item.item_note && (
             <p className="text-sm text-muted-foreground">{item.item_note}</p>
@@ -105,6 +112,25 @@ function SortableRow({
                     defaultValue={item.label ?? ""}
                   />
                 )}
+                {item.item_type === "song" && arrangements.length > 0 ? (
+                  <select
+                    name="arrangement_id"
+                    className="flex h-9 rounded-md border border-input bg-transparent px-3 text-sm sm:col-span-2"
+                    defaultValue={
+                      item.arrangement_id ??
+                      item.song?.default_arrangement_id ??
+                      arrangements[0]?.id ??
+                      ""
+                    }
+                  >
+                    {arrangements.map((arr) => (
+                      <option key={arr.id} value={arr.id}>
+                        {arr.name}
+                        {arr.default_key ? ` · ${arr.default_key}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
                 <Input
                   name="override_key"
                   placeholder="Key override"
@@ -153,10 +179,12 @@ export function SortableSetlist({
   setlistId,
   items: initialItems,
   editable,
+  arrangementsBySong = {},
 }: {
   setlistId: string;
   items: SetlistItemWithSong[];
   editable: boolean;
+  arrangementsBySong?: Record<string, Arrangement[]>;
 }) {
   const [items, setItems] = useState(initialItems);
   const [pending, startTransition] = useTransition();
@@ -201,6 +229,9 @@ export function SortableSetlist({
               item={item}
               setlistId={setlistId}
               editable={editable}
+              arrangements={
+                item.song_id ? arrangementsBySong[item.song_id] ?? [] : []
+              }
             />
           ))}
         </ul>

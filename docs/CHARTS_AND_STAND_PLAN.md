@@ -1,6 +1,6 @@
 # Charts & Music Stand — Implementation Plan (Revised)
 
-**Status:** Revised proposal — await approval before coding  
+**Status:** Phase 1 approved and implementing  
 **Date:** 2026-07-26 (rev. 2)  
 **Scope:** Planning Center–style Lyrics & Chords + Music Stand on MB Live  
 **Stack:** Next.js App Router, Supabase Auth/RLS/Storage, existing roles

@@ -1,3 +1,8 @@
+/**
+ * Legacy helpers — prefer `@/lib/chart` for new code.
+ */
+import { parseChordProDocument } from "@/lib/chart/parse";
+
 export type ChordLinePart =
   | { type: "text"; value: string }
   | { type: "chord"; value: string };
@@ -7,31 +12,24 @@ export type ChordLine = {
   hasChords: boolean;
 };
 
-/** Parse ChordPro-ish `[G]Amazing [C]grace` lines into structured parts. */
+/** @deprecated Use parseChordProDocument / buildChartView from @/lib/chart */
 export function parseChordPro(body: string): ChordLine[] {
-  if (!body.trim()) return [];
-
-  return body.split(/\r?\n/).map((line) => {
-    const parts: ChordLinePart[] = [];
-    const re = /\[([^\]]+)\]|([^\[]+)/g;
-    let match: RegExpExecArray | null;
-    let hasChords = false;
-
-    while ((match = re.exec(line)) !== null) {
-      if (match[1] !== undefined) {
-        parts.push({ type: "chord", value: match[1] });
-        hasChords = true;
-      } else if (match[2]) {
-        parts.push({ type: "text", value: match[2] });
-      }
+  const doc = parseChordProDocument(body);
+  const lines: ChordLine[] = [];
+  for (const block of doc.blocks) {
+    if (block.type !== "section" && block.type !== "paragraph") continue;
+    for (const line of block.lines) {
+      lines.push({
+        hasChords: line.hasChords,
+        parts: line.segments.map((s) =>
+          s.type === "chord"
+            ? { type: "chord", value: s.chord.raw }
+            : { type: "text", value: s.text }
+        ),
+      });
     }
-
-    if (parts.length === 0) {
-      parts.push({ type: "text", value: "" });
-    }
-
-    return { parts, hasChords };
-  });
+  }
+  return lines;
 }
 
 export function plainTextFromChordPro(body: string): string {

@@ -99,7 +99,19 @@ export async function addSongToSetlist(formData: FormData) {
   const songId = String(formData.get("song_id") ?? "");
   if (!setlistId || !songId) return;
 
+  const arrangementIdRaw = String(formData.get("arrangement_id") ?? "").trim();
   const supabase = await createClient();
+
+  let arrangementId: string | null = arrangementIdRaw || null;
+  if (!arrangementId) {
+    const { data: song } = await supabase
+      .from("songs")
+      .select("default_arrangement_id")
+      .eq("id", songId)
+      .maybeSingle();
+    arrangementId = song?.default_arrangement_id ?? null;
+  }
+
   const { data: last } = await supabase
     .from("setlist_items")
     .select("position")
@@ -108,12 +120,26 @@ export async function addSongToSetlist(formData: FormData) {
     .limit(1)
     .maybeSingle();
 
-  await supabase.from("setlist_items").insert({
+  const insertPayload = {
     setlist_id: setlistId,
     song_id: songId,
-    item_type: "song",
+    arrangement_id: arrangementId,
+    item_type: "song" as const,
     position: positionAfter(last?.position),
-  });
+  };
+
+  const { error: insertError } = await supabase
+    .from("setlist_items")
+    .insert(insertPayload);
+
+  if (insertError && /arrangement_id/i.test(insertError.message)) {
+    await supabase.from("setlist_items").insert({
+      setlist_id: insertPayload.setlist_id,
+      song_id: insertPayload.song_id,
+      item_type: insertPayload.item_type,
+      position: insertPayload.position,
+    });
+  }
 
   await touchSetlist(supabase, setlistId);
   revalidatePath(`/sets/${setlistId}`);
@@ -162,11 +188,13 @@ export async function updateSetlistItem(formData: FormData) {
 
   const tempoRaw = String(formData.get("override_tempo") ?? "").trim();
   const capoRaw = String(formData.get("override_capo") ?? "").trim();
+  const arrangementRaw = String(formData.get("arrangement_id") ?? "").trim();
 
   const supabase = await createClient();
   await supabase
     .from("setlist_items")
     .update({
+      arrangement_id: arrangementRaw || null,
       override_key: String(formData.get("override_key") ?? "").trim() || null,
       override_tempo: tempoRaw ? Number(tempoRaw) : null,
       override_capo: capoRaw ? Number(capoRaw) : null,
@@ -267,6 +295,7 @@ export async function duplicateSetlist(formData: FormData) {
       items.map((item) => ({
         setlist_id: created.id,
         song_id: item.song_id,
+        arrangement_id: item.arrangement_id ?? null,
         item_type: item.item_type,
         position: item.position,
         override_key: item.override_key,
