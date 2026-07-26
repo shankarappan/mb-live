@@ -6,6 +6,8 @@ const PROTECTED_PREFIXES = [
   "/sets",
   "/settings",
   "/admin",
+  "/files",
+  "/band",
 ];
 
 function isProtected(pathname: string) {
@@ -31,6 +33,11 @@ export async function updateSession(request: NextRequest) {
 
   if (!supabaseUrl || !supabaseAnonKey) {
     // Allow local UI exploration without env; pages will show setup hints
+    return NextResponse.next({ request });
+  }
+
+  // Public liveness / readiness probes — no session refresh cost.
+  if (pathname === "/api/health" || pathname === "/api/ready") {
     return NextResponse.next({ request });
   }
 

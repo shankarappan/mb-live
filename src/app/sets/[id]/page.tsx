@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { LinkButton } from "@/components/ui/link-button";
 import { isLeaderOrAdmin, requireProfile } from "@/lib/auth";
+import { LIST_PAGE_SIZE } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type {
   Setlist,
@@ -38,13 +39,15 @@ export default async function SetDetailPage({
       .from("setlist_items")
       .select("*, song:songs(*)")
       .eq("setlist_id", id)
-      .order("position", { ascending: true }),
+      .order("position", { ascending: true })
+      .limit(300),
     editable
       ? supabase
           .from("songs")
-          .select("*")
+          .select("id, title, artist, default_key, tempo_bpm, status")
           .eq("status", "active")
           .order("title")
+          .limit(LIST_PAGE_SIZE)
       : Promise.resolve({ data: [] as Song[] }),
   ]);
 

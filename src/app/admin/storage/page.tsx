@@ -1,6 +1,7 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { LinkButton } from "@/components/ui/link-button";
 import { requireRole } from "@/lib/auth";
+import { LIST_PAGE_SIZE, MAX_FILE_LABEL } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { SongFile } from "@/lib/types/database";
 
@@ -17,7 +18,8 @@ export default async function AdminStoragePage() {
   const { data } = await supabase
     .from("song_files")
     .select("*, song:songs(title)")
-    .order("size_bytes", { ascending: false });
+    .order("size_bytes", { ascending: false })
+    .limit(LIST_PAGE_SIZE * 2);
 
   const files = (data as (SongFile & { song?: { title: string } | null })[] | null) ?? [];
   const total = files.reduce((sum, f) => sum + (f.size_bytes || 0), 0);
@@ -30,7 +32,7 @@ export default async function AdminStoragePage() {
             <h1 className="font-display text-3xl">Storage</h1>
             <p className="text-sm text-muted-foreground">
               Total used: <strong>{formatBytes(total)}</strong> across{" "}
-              {files.length} files (200 MB per-file cap).
+              {files.length} files ({MAX_FILE_LABEL} per-file cap).
             </p>
           </div>
           <LinkButton variant="ghost" size="sm" href="/admin/users">Users</LinkButton>

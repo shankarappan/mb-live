@@ -4,16 +4,19 @@ import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { LinkButton } from "@/components/ui/link-button";
 import { isLeaderOrAdmin, requireProfile } from "@/lib/auth";
+import { LIST_PAGE_SIZE } from "@/lib/constants";
 import { createClient } from "@/lib/supabase/server";
 import type { Setlist } from "@/lib/types/database";
 
 export default async function SetsPage() {
   const profile = await requireProfile();
   const supabase = await createClient();
+  // Bound list growth; a working band set library stays well under this.
   const { data } = await supabase
     .from("setlists")
     .select("*")
-    .order("event_date", { ascending: false, nullsFirst: false });
+    .order("event_date", { ascending: false, nullsFirst: false })
+    .limit(LIST_PAGE_SIZE);
 
   const sets = (data as Setlist[] | null) ?? [];
   const upcoming = sets.filter((s) => s.status !== "archived");
@@ -24,7 +27,7 @@ export default async function SetsPage() {
       <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-3xl">Set lists</h1>
+            <h1 className="font-display text-3xl tracking-wide">Set lists</h1>
             <p className="text-sm text-muted-foreground">
               Rehearsals and gigs in one place.
             </p>
@@ -45,7 +48,7 @@ function SetGroup({ title, sets }: { title: string; sets: Setlist[] }) {
   return (
     <section className="space-y-3">
       <h2 className="font-display text-xl">{title}</h2>
-      <ul className="divide-y divide-border/60 rounded-xl border border-border/70 bg-card/30">
+      <ul className="panel divide-y divide-border/70 overflow-hidden p-0">
         {sets.map((set) => (
           <li key={set.id}>
             <Link

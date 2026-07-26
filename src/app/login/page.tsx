@@ -1,4 +1,6 @@
+import { BrandLogo } from "@/components/brand/logo";
 import { LoginForm } from "@/components/auth/login-form";
+import { Panel } from "@/components/layout/panel";
 
 export default async function LoginPage({
   searchParams,
@@ -14,23 +16,27 @@ export default async function LoginPage({
         : undefined;
 
   return (
-    <div className="relative flex min-h-dvh flex-col items-center justify-center px-4">
-      <div className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_top,_var(--stage-glow),_transparent_55%)]" />
-      <div className="w-full max-w-md space-y-8">
-        <div className="space-y-3 text-center">
-          <p className="font-display text-5xl tracking-tight sm:text-6xl">
-            MB Live
-          </p>
-          <p className="text-muted-foreground">
+    <div className="relative flex min-h-dvh w-full min-w-0 items-center justify-center px-4 py-10">
+      <div
+        className="pointer-events-none absolute inset-0 -z-10 opacity-40"
+        style={{
+          backgroundImage:
+            "radial-gradient(ellipse 70% 50% at 50% 0%, color-mix(in srgb, var(--violet) 35%, transparent), transparent 60%)",
+        }}
+      />
+      <div className="mx-auto w-full max-w-md min-w-0 space-y-8">
+        <div className="flex flex-col items-center space-y-4 text-center">
+          <BrandLogo size="lg" priority />
+          <p className="max-w-sm text-muted-foreground">
             Invite-only band library, set lists, and stage reading mode.
           </p>
         </div>
-        <div className="rounded-xl border border-border/70 bg-card/50 p-6 shadow-sm backdrop-blur">
+        <Panel elevated className="p-6">
           <LoginForm
             redirectTo={params.redirect || "/"}
             errorMessage={errorMessage}
           />
-        </div>
+        </Panel>
       </div>
     </div>
   );

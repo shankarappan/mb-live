@@ -24,7 +24,9 @@ Repo: https://github.com/shankarappan/mb-live
 
 **Not in Phase 1:** offline PWA, Realtime, transposition, advanced audio, Playwright E2E, Supabase CLI (`config.toml`), automated migration pipeline.
 
-**Migrations:** only [`supabase/migrations/001_schema.sql`](./supabase/migrations/001_schema.sql). No further migration files; nothing else to run in order.
+**Migrations:** run in order:
+1. [`supabase/migrations/001_schema.sql`](./supabase/migrations/001_schema.sql)
+2. [`supabase/migrations/002_perf_storage_indexes.sql`](./supabase/migrations/002_perf_storage_indexes.sql)
 
 ---
 
@@ -32,7 +34,7 @@ Repo: https://github.com/shankarappan/mb-live
 
 1. Clone the repo and install dependencies.
 2. Create a **new** Supabase project (do **not** reuse the Lets Split / Project-1 database).
-3. Run `001_schema.sql` in the Supabase SQL Editor (tables, RLS, trigger, storage bucket).
+3. Run `001_schema.sql` then `002_perf_storage_indexes.sql` in the Supabase SQL Editor.
 4. Configure Auth: Email provider, disable public sign-ups, Site URL + redirect URLs.
 5. Fill `.env.local` from `.env.example`.
 6. Seed the first admin with `npm run seed:admin`.
@@ -65,9 +67,9 @@ CLI-only (optional to put in `.env.local`; usually passed on the command line):
 ## Supabase setup checklist
 
 - [ ] Create a project at [supabase.com](https://supabase.com)
-- [ ] Open **SQL Editor** and run the entire contents of `supabase/migrations/001_schema.sql` once
+- [ ] Open **SQL Editor** and run `001_schema.sql`, then `002_perf_storage_indexes.sql`
 - [ ] Confirm tables exist: `profiles`, `songs`, `song_files`, `setlists`, `setlist_items`
-- [ ] Confirm Storage → bucket **`song-files`** exists, is **Private**, file size limit ~200MB  
+- [ ] Confirm Storage → bucket **`song-files`** exists, is **Private**, file size limit **50 MB** (Free-plan global cap; raise with Pro+)  
   (created by the migration — no manual bucket create if SQL succeeded)
 - [ ] **Authentication → Providers → Email**: enabled (magic link / OTP)
 - [ ] **Authentication → Settings**: **Allow new users to sign up = OFF** (invite-only)
@@ -104,7 +106,7 @@ Later members: signed-in Admin → **Admin → Users → Invite** (`inviteUserBy
 - [ ] Node.js 20+ available
 - [ ] Repo cloned; `npm install` succeeded
 - [ ] `.env.local` filled with the four app env vars
-- [ ] `001_schema.sql` applied successfully
+- [ ] `001_schema.sql` and `002_perf_storage_indexes.sql` applied successfully
 - [ ] Public sign-up disabled; Email auth enabled; redirect URLs set
 - [ ] Admin seeded
 - [ ] `npm run smoke` passes (file/schema presence only — does not hit live Supabase)
@@ -141,7 +143,7 @@ cp .env.example .env.local
 #   SUPABASE_SERVICE_ROLE_KEY=...
 #   NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-# In Supabase SQL Editor: run supabase/migrations/001_schema.sql
+# In Supabase SQL Editor: run 001_schema.sql then 002_perf_storage_indexes.sql
 # In Supabase Auth: disable public sign-up; set Site URL + redirect URLs
 
 npm run check:env
@@ -152,7 +154,8 @@ SEED_ADMIN_EMAIL="you@example.com" SEED_ADMIN_NAME="Your Name" npm run seed:admi
 npm run setup:verify
 npm run dev
 # Open http://localhost:3000/login and request a magic link for SEED_ADMIN_EMAIL
-# Optional: http://localhost:3000/api/health
+# Optional: http://localhost:3000/api/health (liveness)
+# Optional readiness: curl -H "Authorization: Bearer $READY_CHECK_TOKEN" http://localhost:3000/api/ready
 ```
 
 ### Optional later (not Phase 1 required)

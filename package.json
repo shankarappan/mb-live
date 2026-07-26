@@ -10,7 +10,10 @@
     "check:env": "node scripts/check-env.mjs",
     "seed:admin": "node scripts/seed-admin.mjs",
     "smoke": "node scripts/smoke-test.mjs",
-    "setup:verify": "node scripts/check-env.mjs && node scripts/smoke-test.mjs"
+    "setup:verify": "node scripts/check-env.mjs && node scripts/smoke-test.mjs",
+    "typecheck": "tsc --noEmit",
+    "perf:concurrency": "node scripts/perf-concurrency.mjs",
+    "verify:uploads": "node scripts/verify-direct-upload.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -40,6 +43,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
+    "playwright": "^1.62.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

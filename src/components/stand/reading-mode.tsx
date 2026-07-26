@@ -38,7 +38,7 @@ export function ReadingMode({
           wakeLock = await navigator.wakeLock.request("screen");
         }
       } catch {
-        // Unsupported or denied — document iOS Safari caveat in README
+        // Unsupported or denied
       }
     }
 
@@ -86,7 +86,6 @@ export function ReadingMode({
     };
   }, [go, initialUpdatedAt, setlist.id]);
 
-  // Touch swipe
   useEffect(() => {
     let startX = 0;
     const el = document.getElementById("stand-stage");
@@ -112,94 +111,147 @@ export function ReadingMode({
 
   if (total === 0) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 p-6 text-center">
+      <div className="flex min-h-dvh flex-col items-center justify-center gap-4 bg-[#050712] p-6 text-center text-[#F6F7FB]">
         <p>This set has no items yet.</p>
-        <LinkButton variant="secondary" href={`/sets/${setlist.id}`}>Back to set</LinkButton>
+        <LinkButton variant="secondary" href={`/sets/${setlist.id}`}>
+          Back to set
+        </LinkButton>
       </div>
     );
   }
 
+  const song = item.song;
   const title =
     item.item_type === "song"
-      ? item.song?.title ?? "Song"
+      ? song?.title || "Untitled song"
       : item.label || item.item_type;
-  const key =
-    item.override_key ?? item.song?.default_key ?? null;
-  const tempo = item.override_tempo ?? item.song?.tempo_bpm ?? null;
-  const capo = item.override_capo ?? item.song?.capo ?? null;
+  const key = item.override_key || song?.default_key;
+  const tempo = item.override_tempo || song?.tempo_bpm;
+  const capo = item.override_capo ?? song?.capo;
+  const note = item.item_note || song?.arrangement_notes;
 
   return (
-    <div className="dark min-h-dvh bg-background text-foreground">
-      <div className="mx-auto flex min-h-dvh max-w-3xl flex-col">
-        <header className="flex items-center justify-between gap-3 px-4 py-3">
-          <div className="min-w-0">
-            <p className="truncate font-display text-lg">{setlist.name}</p>
-            <p className="text-xs text-muted-foreground">
-              {index + 1} / {total}
-            </p>
-          </div>
-          <LinkButton size="icon" variant="ghost" aria-label="Exit reading mode" href={`/sets/${setlist.id}`}>
-              <X className="size-5" />
-            </LinkButton>
-        </header>
-
-        {stale && (
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="mx-4 rounded-md bg-primary/20 px-3 py-2 text-left text-sm text-primary"
-          >
-            Set updated — tap to refresh
-          </button>
-        )}
-
-        <div id="stand-stage" className="flex flex-1 flex-col px-4 pb-6 pt-2">
-          <div className="mb-4 space-y-1">
-            <h1 className="font-display text-3xl sm:text-4xl">{title}</h1>
-            <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
-              {key && <span>Key {key}</span>}
-              {tempo != null && <span>{tempo} BPM</span>}
-              {capo != null && capo > 0 && <span>Capo {capo}</span>}
-              {item.song?.artist && <span>{item.song.artist}</span>}
-            </div>
-            {item.item_note && (
-              <p className="text-sm text-primary">{item.item_note}</p>
-            )}
-          </div>
-
-          <div className="flex-1 overflow-y-auto rounded-lg bg-card/40 p-4">
-            {item.item_type === "song" && item.song ? (
-              <ChordBody body={item.song.body} large />
-            ) : (
-              <p className="font-display text-2xl capitalize text-muted-foreground">
-                {item.label || item.item_type.replace("_", " ")}
-              </p>
-            )}
-          </div>
-
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <Button
-              size="lg"
-              variant="secondary"
-              disabled={index === 0}
-              onClick={() => go(-1)}
-              className="min-w-28"
-            >
-              <ChevronLeft className="size-5" />
-              Prev
-            </Button>
-            <Button
-              size="lg"
-              disabled={index >= total - 1}
-              onClick={() => go(1)}
-              className="min-w-28"
-            >
-              Next
-              <ChevronRight className="size-5" />
-            </Button>
-          </div>
+    <div
+      id="stand-stage"
+      className="flex min-h-dvh flex-col bg-[#050712] text-[#F6F7FB]"
+      role="region"
+      aria-label={`Stage mode: ${setlist.name}`}
+    >
+      <header className="flex items-center justify-between gap-3 border-b border-[#222B47] px-4 py-3">
+        <div className="min-w-0">
+          <p className="truncate font-display text-xs uppercase tracking-[0.16em] text-[#98A4BE]">
+            {setlist.name}
+          </p>
+          <p className="font-display text-sm text-[#42D9F2]" aria-live="polite">
+            {index + 1} / {total}
+          </p>
         </div>
-      </div>
+        <LinkButton
+          variant="ghost"
+          size="icon"
+          href={`/sets/${setlist.id}`}
+          aria-label="Exit stage mode"
+          className="text-[#F6F7FB]"
+        >
+          <X className="size-5" />
+        </LinkButton>
+      </header>
+
+      {stale && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-[#FF727A]/50 bg-[#FF727A]/15 px-4 py-3 text-sm"
+          role="status"
+        >
+          <span>
+            <strong className="text-[#FF727A]">Set updated.</strong> Reload for
+            the latest order and notes.
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => window.location.reload()}
+          >
+            Reload set
+          </Button>
+        </div>
+      )}
+
+      <main className="mx-auto flex w-full max-w-4xl min-w-0 flex-1 flex-col gap-4 px-4 py-5 sm:px-6 landscape:max-w-5xl">
+        <div className="space-y-2">
+          <h1 className="font-display text-4xl tracking-wide sm:text-5xl landscape:text-4xl">
+            {title}
+          </h1>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 font-display text-xl text-[#42D9F2] sm:text-2xl">
+            {key && (
+              <span>
+                <span className="sr-only">Key </span>
+                {key}
+              </span>
+            )}
+            {tempo != null && (
+              <span>
+                <span className="sr-only">Tempo </span>
+                {tempo} BPM
+              </span>
+            )}
+            {capo != null && capo > 0 && (
+              <span>
+                <span className="sr-only">Capo </span>
+                Capo {capo}
+              </span>
+            )}
+          </div>
+          {note && (
+            <p className="rounded-xl border border-[#9A5CFF]/35 bg-[#9A5CFF]/10 px-3 py-2 text-base text-[#F6F7FB]">
+              <span className="font-display text-xs uppercase tracking-wider text-[#9A5CFF]">
+                Arrangement
+              </span>
+              <br />
+              {note}
+            </p>
+          )}
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-[#222B47] bg-[#090D1C] p-4 sm:p-6">
+          {item.item_type === "song" && song?.body ? (
+            <ChordBody body={song.body} large />
+          ) : (
+            <p className="text-lg text-[#98A4BE]">
+              {item.item_type === "song"
+                ? "No lyrics/chords body for this song."
+                : item.item_note || "Break / note"}
+            </p>
+          )}
+        </div>
+      </main>
+
+      <footer
+        className="sticky bottom-0 grid grid-cols-2 gap-3 border-t border-[#222B47] bg-[#050712]/95 px-4 py-3 backdrop-blur-md"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+      >
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-12"
+          onClick={() => go(-1)}
+          disabled={index === 0}
+          aria-label="Previous item"
+        >
+          <ChevronLeft className="size-5" aria-hidden />
+          Previous
+        </Button>
+        <Button
+          type="button"
+          className="min-h-12"
+          onClick={() => go(1)}
+          disabled={index >= total - 1}
+          aria-label="Next item"
+        >
+          Next
+          <ChevronRight className="size-5" aria-hidden />
+        </Button>
+      </footer>
     </div>
   );
 }
