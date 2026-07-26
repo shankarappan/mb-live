@@ -1,296 +1,218 @@
-# Charts & Music Stand — Implementation Plan
+# Charts & Music Stand — Implementation Plan (Revised)
 
-**Status:** Proposal only — await approval before coding  
-**Date:** 2026-07-26  
-**Scope:** Planning Center–style Lyrics & Chords + Music Stand features on the existing MB Live stack (Next.js App Router, Supabase Auth/RLS/Storage, current roles).
-
----
-
-## 1. Current-state audit
-
-### 1.1 What already exists
-
-| Area | Current state | Evidence |
-|------|---------------|----------|
-| Song library | CRUD with metadata (key, capo, tempo, tags, status) | `songs` table, `src/actions/songs.ts`, song form |
-| Chart source | Single `songs.body` text field (ChordPro-ish) | `001_schema.sql`, `song-form.tsx` |
-| Arrangement | Free-text `arrangement_notes` only — **not** a first-class entity | schema + types |
-| Chord parsing | Tokenizer for `[Chord]` + lyrics; inline render | `src/lib/chordpro.ts`, `ChordBody` |
-| Transpose / Nashville / Roman / lyrics-only | **Not implemented** (`plainTextFromChordPro` unused) | `chordpro.ts` |
-| Set overrides | Per-item `override_key`, `override_tempo`, `override_capo`, `item_note` (display only) | `setlist_items`, stand UI |
-| Stand / reading mode | Full-screen dark set navigator: swipe, arrows/space, wake lock, stale-set toast | `/sets/[id]/stand`, `ReadingMode` |
-| Stand content | Song `body` text only — **no PDF/files/annotations/temp transpose** | `reading-mode.tsx` |
-| Files | Typed attachments, instrument targeting, signed URLs, direct upload ≤50 MB (Free plan) | `song_files`, `actions/files.ts` |
-| PDF view | Song-detail iframe after signed URL — not in stand | `file-list.tsx` |
-| Roles | `admin` / `leader` / `member` + `instruments[]` | `profiles`, RLS |
-| File visibility | Everyone (`target_instruments` null) or instrument overlap; leaders/admins see all | `can_see_file()` |
-| Song/set visibility | All authenticated users can SELECT all songs & sets (including drafts) | RLS policies |
-| Product phasing | SPEC already parks transpose in Phase 2, annotations in Phase 3 | `SPEC.md` §3 |
-
-### 1.2 Gaps vs requested features
-
-**Chord charts**
-
-| Feature | Gap |
-|---------|-----|
-| Built-in Lyrics & Chords editor | Textarea only; no preview, sections, or structured workflow |
-| Master editable chart source | One `body` string; no arrangement-level chart entity |
-| Auto transpose + capo-aware display | Capo/key are metadata labels; chords never rewritten |
-| View-only transpose (don’t mutate source) | Missing |
-| Output modes (standard / lyrics / Nashville / Roman) | Missing |
-| Generated downloadable variants | Missing |
-| Variants update when master edits | N/A until engine exists (derive at render time) |
-| Section structure / arrangement order | Missing ChordPro section directives / section model |
-| Team notes in chart workflow | Only free-text `arrangement_notes` / set `item_note` |
-| ChordPro parsing | Partial; no `{title}`, `{soc}`, `{key}`, comments, etc. |
-| Mid-song modulation markers | Missing |
-
-**Music Stand**
-
-| Feature | Gap |
-|---------|-----|
-| Full-screen chart + PDF reader | Chart-only; PDF stays on song page |
-| Stage dark layout | Present for text stand |
-| Annotations (highlight / draw / text) | Missing entirely |
-| Quick / temporary transpose in reader | Missing |
-| Keyboard / Bluetooth page-turn | Keyboard + swipe only; no HID/pedal abstraction |
-| Switch chart modes + attached files | Missing |
-
-**Permissions**
-
-| Feature | Gap |
-|---------|-----|
-| Role + instrument file rules | Present and should be reused |
-| Read-only users see only assigned/published | Missing — all songs/sets readable by any member |
+**Status:** Revised proposal — await approval before coding  
+**Date:** 2026-07-26 (rev. 2)  
+**Scope:** Planning Center–style Lyrics & Chords + Music Stand on MB Live  
+**Stack:** Next.js App Router, Supabase Auth/RLS/Storage, existing roles
 
 ---
 
-## 2. Architecture proposal
+## Approved decisions (locked)
 
-### 2.1 Guiding principles
-
-1. **One master chart source** — store ChordPro (or ChordPro-compatible) text; never store four permanent copies of lyrics/chords.
-2. **Derive views at render time** — transpose, capo display, lyrics-only, Nashville, Roman are pure functions over the master AST.
-3. **Reuse auth/RLS** — keep `admin`/`leader`/`member` and `can_see_file`; extend only where publish/assign is required.
-4. **Stand is a viewer over the same engine** — song detail, editor preview, and stand share one chart pipeline.
-5. **Annotations are a separate layer** — never mutate the master chart for personal marks.
-6. **Arrangements stay lean for Phase 1** — start with one chart per song (current `body`); introduce first-class arrangements when the band truly needs multiple charts per song.
-
-### 2.2 Chart storage format
-
-**Recommended master format:** ChordPro text (enhanced), stored as `text`.
-
-```
-{title: Open Road}
-{key: G}
-{tempo: 118}
-{capo: 0}
-
-{start_of_verse: V1}
-[G]Rolling out under [C]city lights
-{end_of_verse}
-
-{start_of_chorus}
-[D]Keep the [Em]signal
-{end_of_chorus}
-
-{comment: Key change}
-{key: A}          ; redefine key / modulation marker
-[A]Second half...
-```
-
-**Why ChordPro text (not JSON-first):**
-
-- Already used in the app; leaders can paste from OnSong / Planning Center exports.
-- Diff-friendly, editable offline, easy to backup.
-- Directives give sections, comments, key/capo without a second schema.
-
-**Optional compiled cache (Phase 1 later / Phase 2):**  
-`chart_ast jsonb` column regenerated on save for faster stand loads. Source of truth remains the text; AST is a cache that can be rebuilt.
-
-**Generated variants:**  
-Do **not** persist Nashville/Roman/lyrics copies. Persist only:
-
-- `source_key` (canonical key of the written chords)
-- `default_display_key` / song `default_key`
-- `capo`
-- optional user/set **view preferences** (display key, mode)
-
-### 2.3 Chord parsing
-
-Evolve `src/lib/chordpro.ts` into a small chart package:
-
-```
-src/lib/chart/
-  parse.ts          // text → ChartDocument AST
-  chords.ts         // parse/normalize chord tokens (quality, bass, extensions)
-  transpose.ts      // pitch-class math + capo
-  modes.ts          // lyrics | nashville | roman | standard
-  render.ts         // AST → view model (lines with chord-above-lyric slots)
-  directives.ts     // {key}, {capo}, {soc}/{eoc}, {comment}, modulation
-  types.ts
-```
-
-**AST sketch:**
-
-```ts
-type ChartDocument = {
-  meta: { title?: string; key?: string; capo?: number; tempo?: number };
-  blocks: ChartBlock[];
-};
-
-type ChartBlock =
-  | { type: "section"; name: string; lines: ChartLine[] }
-  | { type: "comment"; text: string }
-  | { type: "keyChange"; key: string; label?: string } // modulation
-  | { type: "paragraph"; lines: ChartLine[] };
-
-type ChartLine = {
-  segments: Array<
-    | { type: "lyric"; text: string }
-    | { type: "chord"; raw: string; root?: PitchClass; quality?: string; bass?: PitchClass }
-  >;
-};
-```
-
-Parser remains tolerant: unknown directives become comments; plain lines stay lyrics.
-
-### 2.4 Transposition engine
-
-**Inputs:**
-
-- Master chart AST + `sourceKey` (from `{key:}` or song `default_key`)
-- Requested `displayKey`
-- Optional `capo` (fret)
-- Capo display mode: `concert` (sounding) vs `shape` (as written with capo)
-
-**Rules:**
-
-1. Compute semitone delta: `displayKey − sourceKey` (enharmonic policy: prefer flats/sharps by target key family).
-2. Transpose every parsed chord root/bass by delta.
-3. Capo-aware:
-   - **Shape mode (common for guitar):** show chords as fingered shapes; label “Capo N → sounds in X”.
-   - **Concert mode:** show sounding chords; still show capo badge.
-4. **Temporary / view-only transpose:** client (and optional query param / session preference) never writes `songs.body`.
-5. **Permanent transpose (leader action):** optional “Rewrite chart to key X” that updates master text + `default_key` after confirm.
-
-**Set integration:**  
-Stand/set reader uses `override_key` / `override_capo` as default view inputs when present, without mutating the song.
-
-### 2.5 Generated chart rendering
-
-Shared renderer component tree:
-
-```
-ChartView
-  props: document | sourceText, displayKey, capo, mode, density
-  → parse (or use cache) → transpose → mode transform → layout
-
-Modes:
-  standard   → chord-above-lyric (or compact inline for small screens)
-  lyrics     → strip chords
-  nashville  → degree numbers relative to current key center
-  roman      → I / ii / V7 etc. relative to current key center
-```
-
-**Downloads / printable variants (Phase 1.5 / Phase 3):**
-
-- Client print stylesheet (`window.print`) for current mode+key
-- Optional server PDF generation later (Puppeteer/React-PDF) — not required for Phase 1
-- Filename pattern: `{title}-{mode}-{key}.pdf` when export lands
-
-Because variants are derived, **editing the master automatically updates all modes**.
-
-### 2.6 Annotation layer
-
-**Separate table**, keyed by user + target:
-
-```
-chart_annotations
-  id, user_id, song_id
-  arrangement_id null          -- future
-  target_type: 'chart' | 'file'
-  target_id: song_id or song_files.id
-  page_index int null          -- for PDF
-  payload jsonb                -- strokes / highlights / text boxes
-  updated_at
-```
-
-**Payload shape (JSON):**
-
-```json
-{
-  "version": 1,
-  "strokes": [{ "color": "#9A5CFF", "width": 2, "points": [[x,y], ...] }],
-  "highlights": [{ "rect": [x,y,w,h], "color": "#FF727A66" }],
-  "notes": [{ "x": 0.2, "y": 0.4, "text": "Watch ending" }]
-}
-```
-
-Coordinates normalized 0–1 so zoom/layout changes remain stable enough for MVP.
-
-**Rendering:** SVG/canvas overlay above chart or PDF page; personal by default (RLS: user reads/writes own rows). Optional “shared with band” flag in Phase 3.
-
-### 2.7 Permissions integration
-
-**Reuse as-is:**
-
-- Song/set write: admin|leader
-- Member read of library
-- File targeting via `can_see_file` + instruments
-- Stand requires authenticated session
-
-**Add (Phase 3, optional Phase 1.5 if needed sooner):**
-
-| Concept | Purpose |
-|---------|---------|
-| `songs.visibility` | `library` (all members) \| `leaders` \| `assigned` |
-| `song_assignments` | user_id / instrument → song visibility when `assigned` |
-| `setlists.visibility` or honor `status` | e.g. members only see `final` (+ maybe `draft` for leaders) |
-
-**Read-only members:** already cannot mutate songs/sets; chart editor stays leader/admin; stand gets transpose/view prefs only.
-
-**Do not** invent a parallel role system. Instrument tags remain content filters for files; publish/assign is the new song/set gate.
+| # | Decision |
+|---|----------|
+| 1 | Phases **1 → 2 → 3**, with **read-only PDF-in-stand** pulled into Phase 1 |
+| 2 | **ChordPro-style text** is the single master chart; Nashville / Roman / lyrics-only are **derived only** |
+| 3 | **Minimal first-class arrangements in Phase 1** (not deferred) |
+| 4 | **Concert (sounding) key** is canonical stored musical truth; guitarist **shape + capo fret** is optional display |
+| 5 | Phase 1 stand: basic full-screen tablet reader + switch chart ↔ attached PDF (read-only). Annotations stay Phase 2 |
 
 ---
 
-## 3. Recommended database changes
+## 1. Current-state audit (unchanged summary)
 
-### Phase 1 (minimal)
+| Exists today | Missing |
+|--------------|---------|
+| `songs.body` ChordPro-ish textarea + inline `ChordBody` | Transpose engine, view modes, section directives |
+| Capo/key/tempo metadata; set overrides (display only) | Capo/shape view math; concert-key rewrite |
+| `arrangement_notes` free text only | First-class arrangements |
+| Dark stand: swipe, keys, wake lock, body text | PDF-in-stand, mode switcher, annotations |
+| `song_files` + instrument targeting + signed URLs | Arrangement-scoped files |
+| Roles admin/leader/member; members read-only for song/set edits | Publish/assign visibility (Phase 3) |
+
+Evidence: `supabase/migrations/001_schema.sql`, `src/lib/chordpro.ts`, `src/components/stand/reading-mode.tsx`, `src/actions/{songs,files,setlists}.ts`.
+
+---
+
+## 2. Revised phase breakdown
+
+### Phase 1 — Arrangements + chart engine + reader (incl. read-only PDF)
+
+**Goals**
+
+1. Minimal arrangements model under each song.
+2. ChordPro master chart per arrangement; live preview editor.
+3. Transpose / view modes derived from master (standard, lyrics, Nashville, Roman).
+4. Concert key stored as truth; optional shape/capo display.
+5. Basic full-screen stand: chart modes + **read-only PDF** switch when a PDF file exists.
+6. View-only (temporary) transpose without mutating master.
+
+**Deliverables**
+
+| # | Deliverable |
+|---|-------------|
+| P1.1 | Migration: `arrangements` table; migrate `songs.body` / key / capo / tempo / meter / notes → default arrangement |
+| P1.2 | Move chart source to `arrangements.body`; keep song-level library metadata |
+| P1.3 | Optional `song_files.arrangement_id` (nullable = song-level shared file) |
+| P1.4 | `setlist_items.arrangement_id` (nullable → song’s default arrangement) |
+| P1.5 | Chart package: parse → transpose → modes → render (`src/lib/chart/*`) |
+| P1.6 | `ChartView` + `ChartEditor` (preview, mode, concert key, shape/capo toggle) |
+| P1.7 | `chart_view_prefs` (per user + arrangement): display mode, temp display key, shape view on/off, capo fret for shape view |
+| P1.8 | Stand upgrade: tablet full-screen shell; mode switcher; **Chart \| PDF** tabs; PDF via signed URL iframe/PDF.js **read-only** (no annotate) |
+| P1.9 | Set overrides feed stand defaults (`override_key` / `override_capo` as view inputs) |
+| P1.10 | Unit tests for transpose + Nashville/Roman + lyrics-only |
+
+**Explicitly out of Phase 1**
+
+- Annotations (highlight / draw / text)
+- Shared markup, advanced stage tools, Bluetooth pedal mapping beyond basic keys
+- Publish/assign visibility
+- PDF export / print polish (can add thin print CSS if cheap; not required)
+- Advanced modulation UX beyond parsing `{key:}` markers in source
+
+**Phase 1 acceptance**
+
+- Song can have multiple arrangements; set item can pin one.
+- Edit arrangement master → all four chart modes update without stored copies.
+- Temp transpose / mode changes do not write `arrangements.body`.
+- Concert key is what transposition math uses; shape view is display-only.
+- Stand shows generated chart **or** read-only PDF when available, full-screen on tablet.
+
+---
+
+### Phase 2 — Annotations + advanced stand tools
+
+**Goals**
+
+- Personal (then optional shared) markup on chart and PDF pages.
+- Pedal-friendly page turn; richer stage controls.
+
+**Deliverables**
+
+| # | Deliverable |
+|---|-------------|
+| P2.1 | `chart_annotations` table + RLS |
+| P2.2 | Highlight / draw / text tools over chart + PDF |
+| P2.3 | Keyboard / Bluetooth page-turn mapping layer |
+| P2.4 | Annotation sync persistence; clear/reset; color-independent status |
+| P2.5 | Landscape / density prefs; per-user stand defaults |
+
+**Out of Phase 2:** publish/assign, arrangements version history, PDF export pipeline.
+
+---
+
+### Phase 3 — Permissions, modulation UX, exports, arrangement maturity
+
+**Goals**
+
+- Assigned/published visibility; stronger mid-song key-change UX; exports.
+
+**Deliverables**
+
+| # | Deliverable |
+|---|-------------|
+| P3.1 | Song/set visibility (`library` / `leaders` / `assigned`) + assignments + RLS |
+| P3.2 | Editor “Insert key change” + stand visual break for `{key:}` modulations |
+| P3.3 | Print / PDF export of current derived view (mode + concert/shape) |
+| P3.4 | Arrangement status/order polish, duplicate arrangement, optional `chart_ast` cache |
+| P3.5 | Optional shared annotations |
+
+---
+
+## 3. Proposed schema changes
+
+### 3.1 Phase 1 migration (conceptual SQL)
 
 ```sql
--- Chart metadata on songs (body remains master ChordPro source)
-alter table public.songs
-  add column if not exists chart_source_key text,           -- key the body is written in
-  add column if not exists chart_format text not null default 'chordpro',
-  add column if not exists chart_updated_at timestamptz;
+-- 003_arrangements_and_charts.sql
 
--- Per-user view preferences (temp transpose / mode survive refresh)
-create table if not exists public.chart_view_prefs (
-  user_id uuid not null references public.profiles(id) on delete cascade,
+create table public.arrangements (
+  id uuid primary key default gen_random_uuid(),
   song_id uuid not null references public.songs(id) on delete cascade,
-  display_key text,
-  capo_override int,
-  view_mode text not null default 'standard'
-    check (view_mode in ('standard','lyrics','nashville','roman')),
-  updated_at timestamptz not null default now(),
-  primary key (user_id, song_id)
+  name text not null default 'Original',
+  -- Master ChordPro source (concert-key chords)
+  body text not null default '',
+  -- Canonical musical truth (sounding / concert)
+  default_key text,                    -- concert key of the arrangement
+  alternate_keys text[] not null default '{}',
+  chart_source_key text,               -- key the body was written in (usually = default_key)
+  -- Capo is a performance/display aid for shape view; concert key remains truth
+  capo int not null default 0,
+  tempo_bpm int,
+  time_signature text not null default '4/4',
+  notes text,                          -- arrangement-level team notes
+  position numeric not null default 1000,
+  status text not null default 'active'
+    check (status in ('active', 'archived')),
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
-alter table public.chart_view_prefs enable row level security;
--- user CRUD own rows only
+create index arrangements_song_id_idx on public.arrangements (song_id);
+create index arrangements_song_position_idx on public.arrangements (song_id, position);
+
+-- One default arrangement per song (optional helper)
+alter table public.songs
+  add column if not exists default_arrangement_id uuid
+    references public.arrangements(id) on delete set null;
+
+-- Data migration (run in same migration transaction):
+-- For each song, insert arrangement from songs.body / default_key / capo /
+-- tempo_bpm / time_signature / arrangement_notes, then set default_arrangement_id.
+-- Leave songs.body / arrangement_notes readable during transition; stop writing
+-- them after app cutover (deprecate columns in a later migration).
+
+alter table public.song_files
+  add column if not exists arrangement_id uuid
+    references public.arrangements(id) on delete cascade;
+-- null arrangement_id = shared across arrangements of the song
+create index song_files_arrangement_id_idx on public.song_files (arrangement_id);
+
+alter table public.setlist_items
+  add column if not exists arrangement_id uuid
+    references public.arrangements(id) on delete set null;
+-- null = use song.default_arrangement_id at read time
+
+create table public.chart_view_prefs (
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  arrangement_id uuid not null references public.arrangements(id) on delete cascade,
+  view_mode text not null default 'standard'
+    check (view_mode in ('standard', 'lyrics', 'nashville', 'roman')),
+  -- Temporary concert display key (null = arrangement.default_key or set override)
+  display_key text,
+  -- Shape view: show guitar shapes for capo_fret; concert key still shown as badge
+  shape_view boolean not null default false,
+  capo_fret int,                       -- null = arrangement.capo
+  updated_at timestamptz not null default now(),
+  primary key (user_id, arrangement_id)
+);
+
+-- RLS: arrangements follow song write rules (admin/leader mutate; all auth select — until Phase 3)
+-- chart_view_prefs: user CRUD own rows only
 ```
 
-Backfill: `chart_source_key = default_key` where present.
+**Capo / key semantics (Phase 1)**
 
-### Phase 2
+| Field | Meaning |
+|-------|---------|
+| `arrangements.default_key` | **Concert** (sounding) key — canonical |
+| `arrangements.chart_source_key` | Concert key that `body` chords are written in |
+| `arrangements.capo` | Default fret for optional shape view |
+| `chart_view_prefs.display_key` | Temp concert key for viewing |
+| `chart_view_prefs.shape_view` + `capo_fret` | UI-only guitarist shape display |
+
+Chords in `body` are stored as **concert-pitch ChordPro** (Planning Center–style sounding truth). Shape view computes fretted chord labels from concert chords − capo.
+
+### 3.2 Phase 2 migration
 
 ```sql
-create table if not exists public.chart_annotations (
+-- 004_annotations.sql
+create table public.chart_annotations (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
-  song_id uuid not null references public.songs(id) on delete cascade,
-  target_type text not null check (target_type in ('chart','file')),
+  arrangement_id uuid not null references public.arrangements(id) on delete cascade,
+  target_type text not null check (target_type in ('chart', 'file')),
   target_file_id uuid references public.song_files(id) on delete cascade,
   page_index int,
   payload jsonb not null default '{}'::jsonb,
@@ -298,198 +220,171 @@ create table if not exists public.chart_annotations (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
--- RLS: owner full access; shared readable by authenticated if shared=true
 ```
 
-Optional: `songs.chart_ast jsonb` cache.
-
-### Phase 3
+### 3.3 Phase 3 migration
 
 ```sql
--- First-class arrangements (only when one chart/song is insufficient)
-create table public.arrangements (
-  id uuid primary key default gen_random_uuid(),
-  song_id uuid not null references public.songs(id) on delete cascade,
-  name text not null,
-  body text not null default '',
-  chart_source_key text,
-  capo int not null default 0,
-  notes text,
-  position numeric not null default 1000,
-  status text not null default 'active',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
--- Migrate songs.body → default arrangement "Original"
-
+-- 005_visibility.sql
 alter table public.songs
-  add column if not exists visibility text not null default 'library'
-    check (visibility in ('library','leaders','assigned'));
+  add column visibility text not null default 'library'
+    check (visibility in ('library', 'leaders', 'assigned'));
 
 create table public.song_assignments (
   song_id uuid references public.songs(id) on delete cascade,
   user_id uuid references public.profiles(id) on delete cascade,
   primary key (song_id, user_id)
 );
-
--- Tighten songs SELECT RLS accordingly
--- Optionally: members SELECT setlists where status = 'final' OR is_admin_or_leader()
+-- Tighten songs/arrangements SELECT RLS; optional setlist draft gating
 ```
 
-`setlist_items` may later gain `arrangement_id` FK.
+---
+
+## 4. Which current tables / files will change
+
+### 4.1 Database tables
+
+| Table | Change |
+|-------|--------|
+| **New** `arrangements` | Master chart + arrangement metadata |
+| **New** `chart_view_prefs` | Per-user temp mode/key/shape prefs |
+| `songs` | Add `default_arrangement_id`; stop treating `body` as chart source after migrate (deprecate `body`, `arrangement_notes`, possibly song-level key/capo/tempo once migrated) |
+| `song_files` | Add nullable `arrangement_id` |
+| `setlist_items` | Add nullable `arrangement_id` |
+| **New** `chart_annotations` | Phase 2 |
+| `songs` visibility + `song_assignments` | Phase 3 |
+
+### 4.2 Application files (Phase 1 touch list)
+
+| Path | Change |
+|------|--------|
+| `supabase/migrations/003_*.sql` | New |
+| `src/lib/types/database.ts` | `Arrangement`, prefs types; update `Song` / `SongFile` / `SetlistItem` |
+| `src/lib/chordpro.ts` | Superseded / thin re-export → `src/lib/chart/*` |
+| `src/lib/chart/*` | **New** engine |
+| `src/actions/songs.ts` | Create default arrangement with song; arrangement CRUD actions (new file ok) |
+| `src/actions/setlists.ts` | Pass/store `arrangement_id`; stand load joins arrangement |
+| `src/actions/files.ts` | Accept optional `arrangement_id` on prepare/finalize |
+| `src/components/songs/song-form.tsx` | Song meta only; chart moves to arrangement editor |
+| `src/components/songs/chord-body.tsx` | Replace usages with `ChartView` |
+| `src/components/chart/*` | **New** ChartView, ChartEditor, ChartToolbar |
+| `src/app/songs/[id]/page.tsx` | Arrangement tabs/picker + ChartView |
+| `src/app/songs/[id]/edit/page.tsx` | Edit song meta and/or arrangement |
+| `src/app/songs/page.tsx` | Search: include arrangement body (join or denormalized search later) |
+| `src/components/sets/*` | Choose arrangement when adding song; show arrangement name |
+| `src/components/stand/reading-mode.tsx` | Stand shell: modes + Chart/PDF switch, read-only PDF |
+| `src/app/sets/[id]/stand/page.tsx` | Load arrangement + visible PDF files |
+| `src/app/page.tsx` | Queue metadata from arrangement when pinned |
+| `SPEC.md` / `SETUP_CHECKLIST.md` | Document migration 003 |
 
 ---
 
-## 4. Recommended UI changes
+## 5. Storage format — master chart + derived views
 
-### Phase 1 — Chord editor + transpose + view modes
+### Master (persisted)
 
-| Screen | Change |
-|--------|--------|
-| Song edit | Split editor: ChordPro textarea (left) + live `ChartView` preview (right on tablet/desktop; tabbed on phone) |
-| Song edit toolbar | Display key, capo, mode toggle, “Reset to source”, “Rewrite chart to this key…” (leader) |
-| Song detail | Replace bare `ChordBody` with `ChartView` + mode/key controls |
-| Set item | Overrides feed stand defaults; show “viewing in {override_key}” |
-| Stand (light touch) | Mode + temp transpose controls even before full Phase 2 polish |
+- **Format:** ChordPro-compatible **text** on `arrangements.body`
+- **Pitch convention:** chords written at **concert / sounding** pitch
+- **Directives (Phase 1 parse):** `{title}`, `{key}`, `{tempo}`, `{time}`, `{capo}` (informational), `{start_of_*}` / `{end_of_*}`, `{comment}`, mid-chart `{key: X}` as modulation marker
+- **Not persisted:** Nashville, Roman, lyrics-only, shape-transposed copies
 
-Keep Signal Deck visual language (dark surfaces, violet/cyan).
+Example:
 
-### Phase 2 — Music Stand + annotations
+```chordpro
+{title: Open Road}
+{key: G}
+{tempo: 118}
+{time: 4/4}
 
-| Screen | Change |
-|--------|--------|
-| `/sets/[id]/stand` | Upgrade to Stand Shell: chart \| lyrics \| numbers \| numerals \| files |
-| File pane | PDF.js (or iframe) with page next/prev; reuse signed URLs + `can_see_file` |
-| Annotation toolbar | Highlight / pen / text; clear; personal save |
-| Navigation | Prev/next set item **and** prev/next PDF page; map PageUp/PageDown, `[` `]`, and configurable key codes for pedals |
-| Temp transpose | Persistent for session via `chart_view_prefs` or stand local state |
+{start_of_verse: V1}
+[G]Rolling out under [C]city lights
+{end_of_verse}
 
-### Phase 3 — Permissions + modulation + exports
-
-| Screen | Change |
-|--------|--------|
-| Song settings | Visibility: Library / Leaders / Assigned + assignee picker |
-| Arrangement tabs | Multiple arrangements per song when table lands |
-| Editor | Explicit “Insert key change” control writing `{key: X}` |
-| Export | Print / PDF of current mode+key |
-| Admin | Optional draft-set visibility rules |
-
----
-
-## 5. Phased delivery
-
-### Phase 1 — Chord editor + transpose + view modes
-
-**Goal:** Leaders edit one master ChordPro chart; everyone can view transposed / lyrics / Nashville / Roman without mutating source.
-
-**Deliverables:**
-
-1. Chart package (`parse` / `chords` / `transpose` / `modes` / `render`) with unit tests.
-2. Enhanced ChordPro support: sections, comments, `{key}` / `{capo}`, tolerant parse.
-3. `ChartView` UI shared by song detail + editor preview.
-4. Editor UX: live preview, mode switcher, display-key & capo controls.
-5. View-only transpose; optional leader “rewrite master to key”.
-6. Capo-aware labeling (shape vs concert — ship shape-first).
-7. Wire set `override_key` / `override_capo` into stand/detail defaults.
-8. Migration: `chart_source_key`, `chart_view_prefs`.
-9. Stand: add mode + temp transpose chrome (even if PDF/annotations wait).
-
-**Out of scope:** PDF-in-stand, annotations, arrangements table, publish/assign.
-
-**Acceptance:**
-
-- Edit master → all four modes update immediately.
-- Temp transpose does not change DB `body`.
-- Capo + display key produce correct sounding/shape labels.
-- Members remain read-only for chart source.
-
----
-
-### Phase 2 — Music Stand mode + annotations
-
-**Goal:** Gig-ready tablet reader for charts and PDFs with personal marks and pedal-friendly navigation.
-
-**Deliverables:**
-
-1. Stand content switcher: Standard / Lyrics / Nashville / Roman / Files.
-2. PDF page viewer in stand (signed URL, page state).
-3. Annotation tools (highlight, draw, text) with `chart_annotations` persistence.
-4. Quick temp transpose in stand (synced with prefs).
-5. Keyboard + Bluetooth page-turn mapping layer (`PageDown` / custom codes).
-6. Landscape tablet layout; reduced-motion respect; color-independent status.
-
-**Acceptance:**
-
-- Full set navigable with chart or PDF without leaving stand.
-- Annotations reload for the same user; do not alter master chart.
-- Pedal-equivalent keys advance PDF page or next set item (documented mapping).
-
----
-
-### Phase 3 — Advanced permissions + modulation + exports
-
-**Goal:** Assigned/published visibility, robust mid-song key changes, exportable charts, arrangements when needed.
-
-**Deliverables:**
-
-1. Modulation markers first-class in parser + editor insert affordance + stand visual break.
-2. Print/PDF export of current derived view.
-3. `visibility` + `song_assignments` (+ optional set draft gating) with RLS.
-4. First-class `arrangements` table + migrate `songs.body` → default arrangement; set items can pin arrangement.
-5. Optional shared annotations; version history stretch goal.
-
-**Acceptance:**
-
-- Members with `assigned` visibility only see assigned songs.
-- Mid-song `{key:}` changes transpose subsequent sections correctly.
-- Export matches on-screen mode/key.
-
----
-
-## 6. Suggested module & route map
-
-```
-src/lib/chart/*                 # engine (Phase 1)
-src/components/chart/ChartView.tsx
-src/components/chart/ChartEditor.tsx
-src/components/chart/ChartToolbar.tsx
-src/components/stand/*          # evolve ReadingMode → StandShell (Phase 2)
-src/actions/chart-prefs.ts
-src/actions/annotations.ts      # Phase 2
-supabase/migrations/003_charts.sql
-supabase/migrations/004_annotations.sql
-supabase/migrations/005_visibility_arrangements.sql
+{comment: modulate}
+{key: A}
+[A]Second half in concert A
 ```
 
-No new hosting. Continue Vercel + Supabase. Preserve Signal Deck shell.
+### Derived (runtime only)
+
+```
+arrangements.body
+    → parse(ChartDocument)
+    → applyView({
+         displayConcertKey,   // temp or override or default_key
+         shapeView,           // bool
+         capoFret,            // for shape labeling only
+         mode: standard | lyrics | nashville | roman
+       })
+    → ChartViewModel → UI / print
+```
+
+| Mode | Derivation |
+|------|------------|
+| Standard | Concert chords (or shape labels if shape view on) above/inline lyrics |
+| Lyrics-only | Strip chords |
+| Nashville | Degree numbers vs active concert key center |
+| Roman | I / ii / V7 vs active concert key center |
+
+**PDF attachments** remain binary in Storage (`song-files`); stand fetches via existing signed-URL path + `can_see_file`. They are **not** generated from ChordPro in Phase 1.
 
 ---
 
-## 7. Risks & decisions to confirm before coding
+## 6. Risks of moving minimal arrangements into Phase 1
 
-1. **Arrangements timing** — Recommend deferring first-class arrangements to Phase 3 unless you need multiple charts per song immediately.
-2. **Capo default mode** — Recommend **shape** (guitarist) with sounding key badge; confirm for your band.
-3. **Nashville / Roman quality** — Complex chords (sus, add9, slash) need a defined simplification policy.
-4. **PDF engine** — Prefer PDF.js in-browser over server rasterization for annotations + page index.
-5. **Publish model** — Confirm whether members should stop seeing `draft` sets once visibility work starts.
-6. **Asset constraint** — Keep master as text ChordPro; avoid duplicating chart bodies in Storage.
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| **Migration of existing `songs.body`** — every song needs a default arrangement; bugs leave empty charts | High | Transactional migrate + assert row counts; keep `songs.body` read-only fallback for one release |
+| **Setlist join complexity** — items need song + arrangement; null `arrangement_id` must resolve to default | Medium | Server helper `resolveArrangement(songId, arrangementId)`; backfill defaults before UI ships |
+| **Files dual-scope** — song-level vs arrangement-level files can confuse upload UX | Medium | Default new uploads to **current arrangement**; show “All arrangements” bucket for null `arrangement_id` |
+| **Search regression** — song list searches `songs.body` today | Medium | Search `arrangements.body` via join/`exists`, or maintain optional `songs.search_text` trigger later |
+| **Larger Phase 1 surface** — arrangements + engine + PDF stand increases schedule/regression risk | Medium | Ship vertical slice: migrate → one arrangement CRUD → ChartView → stand PDF tab; feature-flag PDF if needed |
+| **Duplicate metadata** — song still has key/capo/tempo columns during transition | Low | Treat song-level fields as deprecated mirrors of default arrangement until Phase 1.1 cleanup migration |
+| **Capo mental model** — concert storage + shape display can confuse leaders used to “write in capo shapes” | Medium | Editor copy: “Write chords in concert key”; shape toggle is view-only; optional “import as shapes + capo” converter later |
+| **Set override vs arrangement key** — three key concepts (arrangement concert, set override, temp display) | Medium | Clear stand chrome: “Concert: A · Shape: G (capo 2) · Set override” |
+| **RLS expansion** — arrangements need policies parallel to songs | Low | Mirror `is_admin_or_leader()` write / authenticated read in 003 |
 
----
-
-## 8. Approval checklist
-
-Please confirm before implementation:
-
-- [ ] Phase order (1 → 2 → 3) as written  
-- [ ] ChordPro text as master format (derive all modes)  
-- [ ] Defer arrangements table to Phase 3  
-- [ ] Capo display default: shape vs concert  
-- [ ] Phase 3 visibility model (library / leaders / assigned)  
-- [ ] Any must-have pulled forward (e.g. PDF-in-stand into Phase 1)
+**Net assessment:** Pulling arrangements into Phase 1 is the right long-term call and avoids a chart-on-song → chart-on-arrangement rewrite. Main cost is a careful data migration and updating set/file/stand query paths in the same release.
 
 ---
 
-## 9. Summary
+## 7. Architecture sketch (Phase 1)
 
-MB Live already has the **right skeleton**: song `body`, set key/capo overrides, dark stand navigation, and instrument-targeted files. The missing core is a **real chart engine** (parse → transpose → mode render) plus a **stand content switcher** and **annotation layer**. Prefer derived views over stored variants, reuse existing roles/file RLS, and introduce arrangements/publish controls only when the band outgrows one chart and open library access.
+```
+Song (library identity: title, artist, tags, status)
+  └── Arrangement[] (name, concert key, capo default, tempo, meter, notes, body ChordPro)
+        ├── song_files? (arrangement_id nullable)
+        └── chart_view_prefs (per user)
+
+SetlistItem → song_id + arrangement_id?
+  overrides: override_key / override_capo / …  → view inputs only
+
+Stand:
+  resolve arrangement → ChartView(modes) | PDF(signed URL, read-only)
+```
+
+```
+src/lib/chart/
+  parse.ts | chords.ts | transpose.ts | modes.ts | render.ts | types.ts
+src/components/chart/
+  ChartView.tsx | ChartEditor.tsx | ChartToolbar.tsx
+src/components/stand/
+  reading-mode.tsx → StandShell (chart | pdf tabs)
+```
+
+---
+
+## 8. Approval checklist (revised)
+
+Please confirm:
+
+- [ ] Phase 1 includes minimal arrangements + read-only PDF-in-stand + chart/PDF switch  
+- [ ] Annotations remain Phase 2  
+- [ ] ChordPro text on `arrangements.body` as sole master; all modes derived  
+- [ ] Concert key canonical; shape/capo optional display  
+- [ ] `song_files.arrangement_id` + `setlist_items.arrangement_id` as specified  
+- [ ] Deprecate writing `songs.body` after migration (keep column temporarily for rollback)
+
+---
+
+*No feature code until this revised plan is approved.*
