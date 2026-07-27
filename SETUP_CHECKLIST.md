@@ -27,6 +27,7 @@ Repo: https://github.com/shankarappan/mb-live
 **Migrations:** run in order:
 1. [`supabase/migrations/001_schema.sql`](./supabase/migrations/001_schema.sql)
 2. [`supabase/migrations/002_perf_storage_indexes.sql`](./supabase/migrations/002_perf_storage_indexes.sql)
+3. [`supabase/migrations/003_arrangements_and_charts.sql`](./supabase/migrations/003_arrangements_and_charts.sql) — arrangements, chart view prefs, optional FKs on files/set items
 
 ---
 
@@ -67,8 +68,8 @@ CLI-only (optional to put in `.env.local`; usually passed on the command line):
 ## Supabase setup checklist
 
 - [ ] Create a project at [supabase.com](https://supabase.com)
-- [ ] Open **SQL Editor** and run `001_schema.sql`, then `002_perf_storage_indexes.sql`
-- [ ] Confirm tables exist: `profiles`, `songs`, `song_files`, `setlists`, `setlist_items`
+- [ ] Open **SQL Editor** and run `001_schema.sql`, then `002_perf_storage_indexes.sql`, then `003_arrangements_and_charts.sql`
+- [ ] Confirm tables exist: `profiles`, `songs`, `arrangements`, `chart_view_prefs`, `song_files`, `setlists`, `setlist_items`
 - [ ] Confirm Storage → bucket **`song-files`** exists, is **Private**, file size limit **50 MB** (Free-plan global cap; raise with Pro+)  
   (created by the migration — no manual bucket create if SQL succeeded)
 - [ ] **Authentication → Providers → Email**: enabled (magic link / OTP)

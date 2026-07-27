@@ -39,6 +39,7 @@ export type FinalizeUploadResult = {
  */
 export async function prepareSongFileUpload(input: {
   songId: string;
+  arrangementId?: string | null;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -105,6 +106,7 @@ export async function prepareSongFileUpload(input: {
  */
 export async function finalizeSongFileUpload(input: {
   songId: string;
+  arrangementId?: string | null;
   storagePath: string;
   filename: string;
   mimeType: string;
@@ -174,21 +176,41 @@ export async function finalizeSongFileUpload(input: {
     }
   }
 
+  const arrangementId = input.arrangementId?.trim() || null;
+
   const supabase = await createClient();
-  const { data: inserted, error: insertError } = await supabase
+  const baseRow = {
+    song_id: input.songId,
+    file_type: meta.fileType,
+    storage_path: input.storagePath,
+    filename: input.filename,
+    mime_type: input.mimeType || null,
+    size_bytes: input.sizeBytes,
+    target_instruments: target,
+    uploaded_by: profile.id,
+  };
+
+  let inserted: { id: string } | null = null;
+  let insertError: { message: string } | null = null;
+
+  const first = await supabase
     .from("song_files")
-    .insert({
-      song_id: input.songId,
-      file_type: meta.fileType,
-      storage_path: input.storagePath,
-      filename: input.filename,
-      mime_type: input.mimeType || null,
-      size_bytes: input.sizeBytes,
-      target_instruments: target,
-      uploaded_by: profile.id,
-    })
+    .insert({ ...baseRow, arrangement_id: arrangementId })
     .select("id")
     .maybeSingle();
+
+  if (first.error && /arrangement_id/i.test(first.error.message)) {
+    const retry = await supabase
+      .from("song_files")
+      .insert(baseRow)
+      .select("id")
+      .maybeSingle();
+    inserted = retry.data;
+    insertError = retry.error;
+  } else {
+    inserted = first.data;
+    insertError = first.error;
+  }
 
   if (insertError || !inserted) {
     await admin.storage.from(STORAGE_BUCKET).remove([input.storagePath]);
