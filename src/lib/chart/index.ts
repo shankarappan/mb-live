@@ -26,6 +26,9 @@ export {
   semitoneDelta,
   preferFlats,
   parseKeyToPitch,
+  isValidChordToken,
+  isSectionHeading,
+  isStandaloneChordLine,
 } from "@/lib/chart/chords";
 export {
   planChartTranspose,

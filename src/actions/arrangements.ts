@@ -6,6 +6,8 @@ import {
   planChartTranspose,
   resolveAuthoritativeSourceKey,
   rewriteChartToKey,
+  isValidConcertKey,
+  parseKeyToPitch,
 } from "@/lib/chart";
 import { createClient } from "@/lib/supabase/server";
 import type { Arrangement, ChartViewMode } from "@/lib/types/database";
@@ -89,12 +91,35 @@ export async function createArrangement(
       return { error: "Target concert key is required." };
     }
 
-    const planned = planChartTranspose(
-      src.body,
-      authoritativeKey,
-      targetKeyRaw,
-    );
+    // Allow major/minor spelling of the same pitch (e.g. D → Dm) from the form.
+    const requestedFrom = String(formData.get("source_key") ?? "").trim();
+    let fromKey = authoritativeKey;
+    if (requestedFrom) {
+      if (!isValidConcertKey(requestedFrom)) {
+        return { error: `Invalid source key “${requestedFrom}”.` };
+      }
+      if (
+        authoritativeKey &&
+        parseKeyToPitch(requestedFrom) !== parseKeyToPitch(authoritativeKey)
+      ) {
+        return {
+          error: `From key must match the source arrangement pitch (${authoritativeKey}).`,
+        };
+      }
+      fromKey = requestedFrom;
+    }
+
+    const planned = planChartTranspose(src.body, fromKey, targetKeyRaw);
     if (!planned.ok) return { error: planned.error };
+
+    // Refuse key-changing creates with zero safe chords (defense in depth —
+    // planChartTranspose already returns ok:false in that case).
+    if (!planned.plan.sameKey && planned.plan.chordsDetected === 0) {
+      return {
+        error:
+          "No safe transposable chords detected. Arrangement was not created.",
+      };
+    }
 
     body = planned.plan.body;
     defaultKey = planned.plan.targetKey;

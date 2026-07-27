@@ -21,10 +21,11 @@ function mapLine(
   mapChord: (c: ParsedChord) => ParsedChord
 ): ChartLine {
   return {
+    ...line,
     hasChords: line.hasChords,
     segments: line.segments.map((seg) =>
       seg.type === "chord"
-        ? { type: "chord", chord: mapChord(seg.chord) }
+        ? { ...seg, chord: mapChord(seg.chord) }
         : seg
     ),
   };

@@ -13,15 +13,28 @@ export type ParsedChord = {
 
 export type ChartSegment =
   | { type: "lyric"; text: string }
-  | { type: "chord"; chord: ParsedChord };
+  | {
+      type: "chord";
+      chord: ParsedChord;
+      /** false = standalone/traditional line */
+      bracketed?: boolean;
+    };
 
 export type ChartLine = {
   segments: ChartSegment[];
   hasChords: boolean;
+  /** Serialization style for this line */
+  style?: "chordpro" | "standalone" | "lyrics";
 };
 
 export type ChartBlock =
-  | { type: "section"; name: string; lines: ChartLine[] }
+  | {
+      type: "section";
+      name: string;
+      lines: ChartLine[];
+      /** How the section label was authored */
+      labelStyle?: "bracket" | "directive";
+    }
   | { type: "comment"; text: string }
   | { type: "keyChange"; key: string; label?: string }
   | { type: "paragraph"; lines: ChartLine[] };

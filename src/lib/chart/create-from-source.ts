@@ -1,5 +1,7 @@
 import {
-  parseChordToken,
+  isNoChordToken,
+  isSectionHeading,
+  isValidChordToken,
   parseKeyToPitch,
   preferFlats,
 } from "@/lib/chart/chords";
@@ -51,12 +53,11 @@ export function isValidConcertKey(key: string | null | undefined): boolean {
   return parseKeyToPitch(key) != null;
 }
 
-/** Bracket content that looks chord-like but is not a recognised token. */
 function looksLikeChordToken(raw: string): boolean {
   const t = raw.trim();
   if (!t) return false;
-  if (/^(N\.?C\.?|NC|-)$/i.test(t)) return false;
-  // Any alphabetic token that the parser left as literal is suspect.
+  if (isNoChordToken(t)) return false;
+  if (isSectionHeading(t)) return false;
   return /^[A-Za-z]/.test(t);
 }
 
@@ -71,6 +72,31 @@ function collectChordTokens(doc: ChartDocument): ParsedChord[] {
     }
   }
   return out;
+}
+
+/** Scan authored brackets that were not accepted as chords (kept as text). */
+function collectUnrecognizedBracketWarnings(
+  sourceBody: string,
+): TransposeWarning[] {
+  const warnings: TransposeWarning[] = [];
+  const seen = new Set<string>();
+  const re = /\[([^\]]+)\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(sourceBody)) !== null) {
+    const inner = match[1]!.trim();
+    if (!inner) continue;
+    if (isSectionHeading(inner)) continue;
+    if (isNoChordToken(inner)) continue;
+    if (isValidChordToken(inner)) continue;
+    if (!looksLikeChordToken(inner)) continue;
+    if (seen.has(inner)) continue;
+    seen.add(inner);
+    warnings.push({
+      token: inner,
+      reason: "Unrecognised chord syntax — left unchanged",
+    });
+  }
+  return warnings;
 }
 
 export type TransposeWarning = {
@@ -103,6 +129,7 @@ export type ChartTransposeResult =
 /**
  * Plan (and optionally rewrite) a chart from sourceKey → targetKey using the
  * parser/transpose engine. Never search-replaces chord text.
+ * Refuses transposition when no safe chord tokens are detected.
  */
 export function planChartTranspose(
   sourceBody: string,
@@ -137,13 +164,17 @@ export function planChartTranspose(
 
   const parsed = parseChordProDocument(sourceBody);
   const tokens = collectChordTokens(parsed);
-  const warnings: TransposeWarning[] = [];
+  const recognised = tokens.filter((c) => !c.literal);
+  const warnings = collectUnrecognizedBracketWarnings(sourceBody);
+
   for (const chord of tokens) {
     if (chord.literal && looksLikeChordToken(chord.raw)) {
-      warnings.push({
-        token: chord.raw,
-        reason: "Unrecognised chord syntax — left unchanged",
-      });
+      if (!warnings.some((w) => w.token === chord.raw)) {
+        warnings.push({
+          token: chord.raw,
+          reason: "Unrecognised chord syntax — left unchanged",
+        });
+      }
     }
   }
 
@@ -154,25 +185,39 @@ export function planChartTranspose(
   const sameKey = samePitch && sameMode;
 
   if (sameKey) {
-    const body = sourceBody;
-    const pairs: ChordPreviewPair[] = tokens.map((c) => ({
+    const pairs: ChordPreviewPair[] = recognised.map((c) => ({
       before: c.raw,
       after: c.raw,
       changed: false,
-      warning: c.literal && looksLikeChordToken(c.raw),
     }));
+    for (const w of warnings) {
+      pairs.push({
+        before: w.token,
+        after: w.token,
+        changed: false,
+        warning: true,
+      });
+    }
     return {
       ok: true,
       plan: {
         sourceKey,
         targetKey,
         sameKey: true,
-        body,
-        chordsDetected: tokens.filter((c) => !c.literal).length,
+        body: sourceBody,
+        chordsDetected: recognised.length,
         chordsChanged: 0,
         warnings,
         pairs,
       },
+    };
+  }
+
+  if (recognised.length === 0) {
+    return {
+      ok: false,
+      error:
+        "No safe transposable chords detected. Create is blocked so the chart is not saved with a changed key. Fix chord lines (or use the same key for an independent copy).",
     };
   }
 
@@ -184,28 +229,28 @@ export function planChartTranspose(
   });
   transposed.meta.key = targetKey;
   const body = serializeChordPro(transposed);
-  const afterTokens = collectChordTokens(transposed);
+  const afterTokens = collectChordTokens(transposed).filter((c) => !c.literal);
 
   const pairs: ChordPreviewPair[] = [];
-  const n = Math.max(tokens.length, afterTokens.length);
   let chordsChanged = 0;
-  let chordsDetected = 0;
-
+  const n = Math.min(recognised.length, afterTokens.length);
   for (let i = 0; i < n; i++) {
-    const before = tokens[i];
-    const after = afterTokens[i];
-    if (!before) continue;
-    const isRecognised = !before.literal;
-    if (isRecognised) chordsDetected += 1;
-    const beforeRaw = before.raw;
-    const afterRaw = after?.raw ?? beforeRaw;
-    const changed = isRecognised && beforeRaw !== afterRaw;
+    const before = recognised[i]!;
+    const after = afterTokens[i]!;
+    const changed = before.raw !== after.raw;
     if (changed) chordsChanged += 1;
     pairs.push({
-      before: beforeRaw,
-      after: afterRaw,
+      before: before.raw,
+      after: after.raw,
       changed,
-      warning: before.literal && looksLikeChordToken(before.raw),
+    });
+  }
+  for (const w of warnings) {
+    pairs.push({
+      before: w.token,
+      after: w.token,
+      changed: false,
+      warning: true,
     });
   }
 
@@ -216,7 +261,7 @@ export function planChartTranspose(
       targetKey,
       sameKey: false,
       body,
-      chordsDetected,
+      chordsDetected: recognised.length,
       chordsChanged,
       warnings,
       pairs,
@@ -250,4 +295,4 @@ export function resolveAuthoritativeSourceKey(input: {
   return null;
 }
 
-export { preferFlats, parseChordToken };
+export { preferFlats };

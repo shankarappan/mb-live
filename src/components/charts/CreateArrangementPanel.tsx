@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import {
   CONCERT_KEY_OPTIONS,
   planChartTranspose,
+  parseKeyToPitch,
   resolveAuthoritativeSourceKey,
 } from "@/lib/chart";
 import type { Arrangement } from "@/lib/types/database";
@@ -24,17 +25,38 @@ type Props = {
   source: Arrangement;
 };
 
+function samePitchKeys(base: string): string[] {
+  const pc = parseKeyToPitch(base);
+  if (pc == null) return CONCERT_KEY_OPTIONS.slice() as string[];
+  return CONCERT_KEY_OPTIONS.filter((k) => parseKeyToPitch(k) === pc);
+}
+
 export function CreateArrangementPanel({ songId, source }: Props) {
   const router = useRouter();
-  const fromKey =
+  const authoritativeFrom =
     resolveAuthoritativeSourceKey({
       chart_source_key: source.chart_source_key,
       default_key: source.default_key,
       body: source.body,
     }) ?? "";
 
+  // Prefer minor spelling when the chart body clearly centres on Xm chords.
+  const preferredFrom = (() => {
+    if (!authoritativeFrom) return "";
+    if (/m$/i.test(authoritativeFrom)) return authoritativeFrom;
+    const minor = `${authoritativeFrom}m`;
+    if (
+      CONCERT_KEY_OPTIONS.includes(minor) &&
+      new RegExp(`\\b${authoritativeFrom}m\\b`).test(source.body)
+    ) {
+      return minor;
+    }
+    return authoritativeFrom;
+  })();
+
   const [name, setName] = useState(`${source.name} (transpose)`);
-  const [toKey, setToKey] = useState(fromKey || "G");
+  const [fromKey, setFromKey] = useState(preferredFrom || authoritativeFrom);
+  const [toKey, setToKey] = useState(preferredFrom || authoritativeFrom || "G");
   const [capo, setCapo] = useState(String(source.capo ?? 0));
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(
@@ -50,6 +72,14 @@ export function CreateArrangementPanel({ songId, source }: Props) {
     initial,
   );
 
+  const fromKeyOptions = useMemo(
+    () =>
+      authoritativeFrom
+        ? samePitchKeys(authoritativeFrom)
+        : (CONCERT_KEY_OPTIONS as unknown as string[]),
+    [authoritativeFrom],
+  );
+
   const planResult = useMemo(
     () => planChartTranspose(source.body, fromKey || null, toKey),
     [source.body, fromKey, toKey],
@@ -57,10 +87,25 @@ export function CreateArrangementPanel({ songId, source }: Props) {
 
   const plan = planResult.ok ? planResult.plan : null;
   const sameKey = plan?.sameKey ?? fromKey === toKey;
-  const previewPairs = (plan?.pairs ?? []).filter(
-    (p) => p.changed || p.warning,
-  );
-  const previewSample = (plan?.pairs ?? []).slice(0, 24);
+  const blockedNoChords =
+    !planResult.ok &&
+    /no safe transposable chords/i.test(
+      !planResult.ok ? planResult.error : "",
+    );
+  const uniquePairs = (() => {
+    const pairs = (plan?.pairs ?? []).filter((p) => !p.warning);
+    const seen = new Set<string>();
+    const out: typeof pairs = [];
+    for (const p of pairs) {
+      const key = `${p.before}\0${p.after}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(p);
+    }
+    return out;
+  })();
+  const previewSample = uniquePairs.slice(0, 32);
+  const warningPairs = (plan?.pairs ?? []).filter((p) => p.warning);
 
   if (!open) {
     return (
@@ -84,7 +129,7 @@ export function CreateArrangementPanel({ songId, source }: Props) {
           </h3>
           <p className="text-xs text-[var(--ink-3)]">
             Duplicate from <span className="text-[var(--brand)]">{source.name}</span>{" "}
-            and transpose the ChordPro master with the chart engine.
+            and transpose the chart with the shared chart engine.
           </p>
         </div>
         <button
@@ -114,16 +159,29 @@ export function CreateArrangementPanel({ songId, source }: Props) {
 
         <div className="space-y-1.5">
           <Label htmlFor="create-from-key">From key</Label>
-          <Input
+          <select
             id="create-from-key"
-            value={fromKey || "—"}
-            readOnly
-            className="bg-[var(--surface-2)] text-[var(--ink-2)]"
-          />
-          {!fromKey ? (
+            name="source_key"
+            value={fromKey || ""}
+            onChange={(e) => setFromKey(e.target.value)}
+            required
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm text-[var(--ink)]"
+          >
+            {fromKeyOptions.map((k) => (
+              <option key={k} value={k}>
+                {k}
+              </option>
+            ))}
+          </select>
+          {!authoritativeFrom ? (
             <p className="text-xs text-destructive">
               Source chart has no concert key. Set it on the original before
               transposing.
+            </p>
+          ) : preferredFrom !== authoritativeFrom ? (
+            <p className="text-xs text-[var(--ink-3)]">
+              Chart looks minor — defaulted From key to {preferredFrom}{" "}
+              (same pitch as {authoritativeFrom}).
             </p>
           ) : null}
         </div>
@@ -188,7 +246,8 @@ export function CreateArrangementPanel({ songId, source }: Props) {
               ) : (
                 <span className="mt-1 block text-xs text-[var(--ink-3)]">
                   Transposing {fromKey} → {toKey} via the chart engine. Source
-                  arrangement stays unchanged.
+                  arrangement stays unchanged. Section headings like [Intro] and
+                  [End] are not counted as chords.
                 </span>
               )}
             </p>
@@ -202,7 +261,7 @@ export function CreateArrangementPanel({ songId, source }: Props) {
         {plan && previewSample.length > 0 ? (
           <div className="sm:col-span-2 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--ink-3)]">
-              Live preview
+              Live preview · unique chords
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-[var(--line)] bg-[#090D1C] p-3">
@@ -217,9 +276,7 @@ export function CreateArrangementPanel({ songId, source }: Props) {
                         "rounded px-1.5 py-0.5",
                         p.changed
                           ? "bg-[#FF727A]/15 text-[#FF727A]"
-                          : p.warning
-                            ? "bg-amber-500/15 text-amber-300"
-                            : "text-[var(--ink-2)]",
+                          : "text-[var(--ink-2)]",
                       )}
                     >
                       {p.before}
@@ -239,9 +296,7 @@ export function CreateArrangementPanel({ songId, source }: Props) {
                         "rounded px-1.5 py-0.5",
                         p.changed
                           ? "bg-[var(--brand)]/20 font-semibold text-[var(--brand)]"
-                          : p.warning
-                            ? "bg-amber-500/15 text-amber-300"
-                            : "text-[var(--ink-2)]",
+                          : "text-[var(--ink-2)]",
                       )}
                     >
                       {p.after}
@@ -250,7 +305,7 @@ export function CreateArrangementPanel({ songId, source }: Props) {
                 </div>
               </div>
             </div>
-            {previewPairs.some((p) => p.warning) ? (
+            {warningPairs.length > 0 ? (
               <ul className="text-xs text-amber-300/90">
                 {plan.warnings.slice(0, 5).map((w, i) => (
                   <li key={i}>
@@ -276,13 +331,17 @@ export function CreateArrangementPanel({ songId, source }: Props) {
         <Button
           type="submit"
           className="sm:col-span-2"
-          disabled={pending || !planResult.ok || !fromKey}
+          disabled={
+            pending || !planResult.ok || !fromKey || blockedNoChords
+          }
         >
           {pending
             ? "Creating…"
-            : sameKey
-              ? "Create independent copy"
-              : "Create transposed arrangement"}
+            : blockedNoChords
+              ? "Create blocked — no chords"
+              : sameKey
+                ? "Create independent copy"
+                : "Create transposed arrangement"}
         </Button>
       </form>
     </div>
