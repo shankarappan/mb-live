@@ -8,9 +8,9 @@ import {
 } from "@/actions/arrangements";
 import { ChartEditor } from "@/components/charts/ChartEditor";
 import { ChartView } from "@/components/charts/ChartView";
+import { CreateArrangementPanel } from "@/components/charts/CreateArrangementPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import type { Arrangement, ChartViewPrefs } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
 
@@ -56,6 +56,11 @@ export function ArrangementPanel({
             <Button type="submit" size="sm" disabled={creating}>
               {creating ? "Creating…" : "Create arrangement"}
             </Button>
+            {createState.error ? (
+              <p className="w-full text-sm text-destructive">
+                {createState.error}
+              </p>
+            ) : null}
           </form>
         ) : null}
       </div>
@@ -84,6 +89,7 @@ export function ArrangementPanel({
               )}
             >
               {arr.name}
+              {arr.default_key ? ` · ${arr.default_key}` : ""}
               {isDefault ? " · default" : ""}
             </button>
           );
@@ -121,57 +127,11 @@ export function ArrangementPanel({
       )}
 
       {canEdit ? (
-        <details className="rounded-md border border-[var(--line)] p-3">
-          <summary className="cursor-pointer text-sm text-[var(--ink-2)]">
-            Add arrangement
-          </summary>
-          <form action={createAction} className="mt-3 grid gap-2 sm:grid-cols-2">
-            <input type="hidden" name="song_id" value={songId} />
-            <div className="space-y-1">
-              <Label htmlFor="new-arr-name">Name</Label>
-              <Input
-                id="new-arr-name"
-                name="name"
-                placeholder="Acoustic"
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="new-arr-key">Concert key</Label>
-              <Input
-                id="new-arr-key"
-                name="default_key"
-                defaultValue={active.default_key ?? ""}
-                placeholder="G"
-              />
-            </div>
-            <input type="hidden" name="body" value={active.body} />
-            <input type="hidden" name="capo" value={String(active.capo ?? 0)} />
-            <input
-              type="hidden"
-              name="tempo_bpm"
-              value={active.tempo_bpm ?? ""}
-            />
-            <input
-              type="hidden"
-              name="time_signature"
-              value={active.time_signature || "4/4"}
-            />
-            <Button
-              type="submit"
-              size="sm"
-              className="sm:col-span-2"
-              disabled={creating}
-            >
-              {creating ? "Creating…" : "Duplicate chart into new arrangement"}
-            </Button>
-            {createState.error ? (
-              <p className="text-sm text-destructive sm:col-span-2">
-                {createState.error}
-              </p>
-            ) : null}
-          </form>
-        </details>
+        <CreateArrangementPanel
+          key={active.id}
+          songId={songId}
+          source={active}
+        />
       ) : null}
     </div>
   );

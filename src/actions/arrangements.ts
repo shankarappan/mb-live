@@ -2,9 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { isLeaderOrAdmin, requireProfile } from "@/lib/auth";
-import { rewriteChartToKey } from "@/lib/chart";
+import {
+  planChartTranspose,
+  resolveAuthoritativeSourceKey,
+  rewriteChartToKey,
+} from "@/lib/chart";
 import { createClient } from "@/lib/supabase/server";
-import type { ChartViewMode } from "@/lib/types/database";
+import type { Arrangement, ChartViewMode } from "@/lib/types/database";
 
 export type ActionState = {
   error?: string;
@@ -20,7 +24,7 @@ function parseAlternateKeys(raw: string): string[] {
 
 export async function createArrangement(
   _prev: ActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<ActionState> {
   const profile = await requireProfile();
   if (!isLeaderOrAdmin(profile.role)) {
@@ -30,6 +34,12 @@ export async function createArrangement(
   const songId = String(formData.get("song_id") ?? "");
   const name = String(formData.get("name") ?? "").trim() || "Arrangement";
   if (!songId) return { error: "Missing song." };
+
+  const sourceArrangementId = String(
+    formData.get("source_arrangement_id") ?? "",
+  ).trim();
+  const targetKeyRaw = String(formData.get("default_key") ?? "").trim();
+  const capoRaw = String(formData.get("capo") ?? "").trim();
 
   const supabase = await createClient();
   const { data: maxPos } = await supabase
@@ -41,26 +51,112 @@ export async function createArrangement(
     .maybeSingle();
 
   const position = Number(maxPos?.position ?? 0) + 1000;
-  const defaultKey = String(formData.get("default_key") ?? "").trim() || null;
+
+  let body = String(formData.get("body") ?? "");
+  let defaultKey: string | null = targetKeyRaw || null;
+  let chartSourceKey: string | null = defaultKey;
+  let alternateKeys = parseAlternateKeys(
+    String(formData.get("alternate_keys") ?? ""),
+  );
+  let capo = capoRaw ? Number(capoRaw) || 0 : 0;
+  let tempoBpm: number | null = String(formData.get("tempo_bpm") ?? "").trim()
+    ? Number(formData.get("tempo_bpm"))
+    : null;
+  let timeSignature =
+    String(formData.get("time_signature") ?? "4/4").trim() || "4/4";
+  let notes = String(formData.get("notes") ?? "").trim() || null;
+
+  if (sourceArrangementId) {
+    const { data: source, error: sourceError } = await supabase
+      .from("arrangements")
+      .select("*")
+      .eq("id", sourceArrangementId)
+      .eq("song_id", songId)
+      .maybeSingle();
+
+    if (sourceError || !source) {
+      return { error: "Source arrangement not found for this song." };
+    }
+
+    const src = source as Arrangement;
+    const authoritativeKey = resolveAuthoritativeSourceKey({
+      chart_source_key: src.chart_source_key,
+      default_key: src.default_key,
+      body: src.body,
+    });
+
+    if (!targetKeyRaw) {
+      return { error: "Target concert key is required." };
+    }
+
+    const planned = planChartTranspose(
+      src.body,
+      authoritativeKey,
+      targetKeyRaw,
+    );
+    if (!planned.ok) return { error: planned.error };
+
+    body = planned.plan.body;
+    defaultKey = planned.plan.targetKey;
+    chartSourceKey = planned.plan.targetKey;
+    const sameKeyCopy = planned.plan.sameKey;
+
+    // Preserve duplicated metadata from the source; allow capo override.
+    alternateKeys =
+      alternateKeys.length > 0 ? alternateKeys : (src.alternate_keys ?? []);
+    capo = capoRaw ? Number(capoRaw) || 0 : (src.capo ?? 0);
+    tempoBpm =
+      tempoBpm != null
+        ? tempoBpm
+        : src.tempo_bpm != null
+          ? src.tempo_bpm
+          : null;
+    timeSignature = src.time_signature || timeSignature;
+    notes = notes ?? src.notes;
+
+    const { data, error } = await supabase
+      .from("arrangements")
+      .insert({
+        song_id: songId,
+        name,
+        body,
+        default_key: defaultKey,
+        chart_source_key: chartSourceKey,
+        alternate_keys: alternateKeys,
+        capo,
+        tempo_bpm: tempoBpm,
+        time_signature: timeSignature,
+        notes,
+        position,
+        created_by: profile.id,
+      })
+      .select("id")
+      .single();
+
+    if (error || !data) return { error: error?.message ?? "Create failed." };
+
+    revalidatePath(`/songs/${songId}`);
+    revalidatePath("/sets");
+    return {
+      success: sameKeyCopy
+        ? `Independent copy “${name}” created in ${defaultKey}.`
+        : `Arrangement “${name}” created in ${defaultKey} (${planned.plan.chordsChanged} chords transposed).`,
+    };
+  }
 
   const { data, error } = await supabase
     .from("arrangements")
     .insert({
       song_id: songId,
       name,
-      body: String(formData.get("body") ?? ""),
+      body,
       default_key: defaultKey,
-      chart_source_key: defaultKey,
-      alternate_keys: parseAlternateKeys(
-        String(formData.get("alternate_keys") ?? "")
-      ),
-      capo: Number(formData.get("capo") ?? 0) || 0,
-      tempo_bpm: String(formData.get("tempo_bpm") ?? "").trim()
-        ? Number(formData.get("tempo_bpm"))
-        : null,
-      time_signature:
-        String(formData.get("time_signature") ?? "4/4").trim() || "4/4",
-      notes: String(formData.get("notes") ?? "").trim() || null,
+      chart_source_key: chartSourceKey,
+      alternate_keys: alternateKeys,
+      capo,
+      tempo_bpm: tempoBpm,
+      time_signature: timeSignature,
+      notes,
       position,
       created_by: profile.id,
     })
@@ -70,12 +166,13 @@ export async function createArrangement(
   if (error || !data) return { error: error?.message ?? "Create failed." };
 
   revalidatePath(`/songs/${songId}`);
+  revalidatePath("/sets");
   return { success: "Arrangement created." };
 }
 
 export async function updateArrangement(
   _prev: ActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<ActionState> {
   const profile = await requireProfile();
   if (!isLeaderOrAdmin(profile.role)) {
@@ -97,6 +194,12 @@ export async function updateArrangement(
     String(formData.get("chart_source_key") ?? "").trim() || defaultKey;
 
   if (rewrite && displayKey && chartSourceKey) {
+    const planned = planChartTranspose(body, chartSourceKey, displayKey);
+    if (!planned.ok) return { error: planned.error };
+    nextBody = planned.plan.body;
+    nextKey = planned.plan.targetKey;
+    chartSourceKey = planned.plan.targetKey;
+  } else if (rewrite && displayKey) {
     const rewritten = rewriteChartToKey(body, chartSourceKey, displayKey);
     nextBody = rewritten.body;
     nextKey = rewritten.key;
@@ -112,7 +215,7 @@ export async function updateArrangement(
       default_key: nextKey,
       chart_source_key: chartSourceKey,
       alternate_keys: parseAlternateKeys(
-        String(formData.get("alternate_keys") ?? "")
+        String(formData.get("alternate_keys") ?? ""),
       ),
       capo: Number(formData.get("capo") ?? 0) || 0,
       tempo_bpm: String(formData.get("tempo_bpm") ?? "").trim()
@@ -126,7 +229,6 @@ export async function updateArrangement(
 
   if (error) return { error: error.message };
 
-  // Keep legacy song mirrors in sync for default arrangement (search/fallback)
   if (songId) {
     const { data: song } = await supabase
       .from("songs")
@@ -154,7 +256,9 @@ export async function updateArrangement(
 
   revalidatePath(`/songs/${songId}`);
   revalidatePath("/sets");
-  return { success: rewrite ? "Chart rewritten to new concert key." : "Saved." };
+  return {
+    success: rewrite ? "Chart rewritten to new concert key." : "Saved.",
+  };
 }
 
 export async function setDefaultArrangement(formData: FormData) {
@@ -192,7 +296,7 @@ export async function saveChartViewPrefs(input: {
       shape_view: input.shapeView,
       capo_fret: input.capoFret,
     },
-    { onConflict: "user_id,arrangement_id" }
+    { onConflict: "user_id,arrangement_id" },
   );
   if (error) return { error: error.message };
   return { success: "Preferences saved." };

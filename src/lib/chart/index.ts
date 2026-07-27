@@ -2,9 +2,21 @@ import { parseChordProDocument, serializeChordPro } from "@/lib/chart/parse";
 import { toViewModel } from "@/lib/chart/render";
 import { transposeDocument } from "@/lib/chart/transpose";
 import type { ChartViewMode, ChartViewModel } from "@/lib/chart/types";
+import {
+  planChartTranspose,
+  resolveAuthoritativeSourceKey,
+} from "@/lib/chart/create-from-source";
 
-export type { ChartViewMode, ChartViewModel, ChartDocument } from "@/lib/chart/types";
-export { parseChordProDocument, serializeChordPro, extractPlainLyrics } from "@/lib/chart/parse";
+export type {
+  ChartViewMode,
+  ChartViewModel,
+  ChartDocument,
+} from "@/lib/chart/types";
+export {
+  parseChordProDocument,
+  serializeChordPro,
+  extractPlainLyrics,
+} from "@/lib/chart/parse";
 export { transposeDocument } from "@/lib/chart/transpose";
 export {
   parseChordToken,
@@ -13,7 +25,16 @@ export {
   chordToRoman,
   semitoneDelta,
   preferFlats,
+  parseKeyToPitch,
 } from "@/lib/chart/chords";
+export {
+  planChartTranspose,
+  resolveAuthoritativeSourceKey,
+  isValidConcertKey,
+  CONCERT_KEY_OPTIONS,
+  type ChartTransposePlan,
+  type ChartTransposeResult,
+} from "@/lib/chart/create-from-source";
 
 export type BuildChartViewInput = {
   source: string;
@@ -56,16 +77,24 @@ export function buildChartView(input: BuildChartViewInput): ChartViewModel {
 export function rewriteChartToKey(
   source: string,
   sourceKey: string | null | undefined,
-  targetKey: string
+  targetKey: string,
 ): { body: string; key: string } {
-  const parsed = parseChordProDocument(source);
-  const from = sourceKey ?? parsed.meta.key ?? null;
-  const transposed = transposeDocument(parsed, {
-    sourceKey: from,
-    displayKey: targetKey,
-    shapeView: false,
-    capoFret: 0,
-  });
-  transposed.meta.key = targetKey;
-  return { body: serializeChordPro(transposed), key: targetKey };
+  const planned = planChartTranspose(source, sourceKey, targetKey);
+  if (!planned.ok) {
+    const parsed = parseChordProDocument(source);
+    const from =
+      sourceKey ??
+      resolveAuthoritativeSourceKey({ body: source }) ??
+      parsed.meta.key ??
+      null;
+    const transposed = transposeDocument(parsed, {
+      sourceKey: from,
+      displayKey: targetKey,
+      shapeView: false,
+      capoFret: 0,
+    });
+    transposed.meta.key = targetKey;
+    return { body: serializeChordPro(transposed), key: targetKey };
+  }
+  return { body: planned.plan.body, key: planned.plan.targetKey };
 }
