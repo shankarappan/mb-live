@@ -12,7 +12,7 @@
     "smoke": "node scripts/smoke-test.mjs",
     "setup:verify": "node scripts/check-env.mjs && node scripts/smoke-test.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/lib/chart/chart.test.ts",
+    "test": "tsx --test src/lib/chart/chart.test.ts src/components/charts/chart-view-state.test.ts",
     "db:migrate:003": "node scripts/apply-migration-003.mjs",
     "perf:concurrency": "node scripts/perf-concurrency.mjs",
     "verify:uploads": "node scripts/verify-direct-upload.mjs"

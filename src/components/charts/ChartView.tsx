@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { saveChartViewPrefs } from "@/actions/arrangements";
 import { ChartToolbar } from "@/components/charts/ChartToolbar";
+import { resolveChartViewInitialState } from "@/components/charts/chart-view-state";
 import { buildChartView, type ChartViewMode } from "@/lib/chart";
 import type { Arrangement, ChartViewPrefs } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
@@ -114,20 +115,22 @@ export function ChartView({
   className,
   large = false,
 }: Props) {
-  const concertKey =
-    overrideKey || arrangement.default_key || arrangement.chart_source_key;
-  const sourceKey = arrangement.chart_source_key || arrangement.default_key;
+  const initial = resolveChartViewInitialState({
+    arrangement,
+    prefs,
+    overrideKey,
+    overrideCapo,
+    initialMode,
+  });
+  const concertKey = initial.concertKey;
+  const sourceKey = initial.sourceKey;
 
-  const [mode, setMode] = useState<ChartViewMode>(
-    initialMode ?? prefs?.view_mode ?? "standard",
-  );
+  const [mode, setMode] = useState<ChartViewMode>(initial.mode);
   const [displayKey, setDisplayKey] = useState<string | null>(
-    prefs?.display_key ?? concertKey,
+    initial.displayKey,
   );
-  const [shapeView, setShapeView] = useState(prefs?.shape_view ?? false);
-  const [capoFret, setCapoFret] = useState(
-    overrideCapo ?? prefs?.capo_fret ?? arrangement.capo ?? 0,
-  );
+  const [shapeView, setShapeView] = useState(initial.shapeView);
+  const [capoFret, setCapoFret] = useState(initial.capoFret);
   const [prefsMsg, setPrefsMsg] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 

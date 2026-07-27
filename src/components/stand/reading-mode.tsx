@@ -352,6 +352,7 @@ export function ReadingMode({
           ) : arrangement ? (
             <div className="stand-chart text-[#F6F7FB] [--ink:#F6F7FB] [--ink-2:#98A4BE] [--ink-3:#6B7690] [--brand:#42D9F2] [--brand-ink:#050712] [--surface:#12182B] [--surface-2:#1A2238] [--line:#222B47]">
               <ChartView
+                key={arrangement.id}
                 arrangement={arrangement}
                 prefs={prefs}
                 overrideKey={item.override_key}

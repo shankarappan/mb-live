@@ -113,6 +113,7 @@ export function ArrangementPanel({
         <ChartEditor arrangement={active} canEdit />
       ) : (
         <ChartView
+          key={active.id}
           arrangement={active}
           prefs={prefsByArrangement[active.id] ?? null}
           persistPrefs
